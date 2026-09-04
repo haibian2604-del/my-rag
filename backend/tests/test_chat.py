@@ -21,6 +21,21 @@ from app.providers.embedding.fake import FakeEmbedding
 QUERY = "退款政策几天可以退款"
 
 
+class RecordingFakeLLM:
+    """记录收到的 messages 的 fake LLM，用于断言 P1（问题不重复）。"""
+
+    instances = []
+
+    def __init__(self, reply: str = "回答。"):
+        self.reply = reply
+        self.seen_messages = None
+        RecordingFakeLLM.instances.append(self)
+
+    async def stream_chat(self, messages: list[dict], **params):
+        self.seen_messages = messages
+        yield self.reply
+
+
 @pytest.fixture
 def client() -> TestClient:
     from app.main import create_app
@@ -116,10 +131,13 @@ def test_ask_without_llm_config_returns_400(client, seed_data):
         s.add(conv)
         s.commit()
         cid = conv.id
-        s.delete(s.get(Conversation, cid))
     resp = client.post(f"/api/conversations/{cid}/ask", json={"question": QUERY})
     assert resp.status_code == 400
     assert resp.json()["detail"] == "未配置 LLM 模型"
+    # 清理会话
+    with SessionLocal() as s:
+        s.delete(s.get(Conversation, cid))
+        s.commit()
 
 
 def test_history_messages_roundtrip(client, seed_data):
@@ -140,6 +158,35 @@ def test_history_messages_roundtrip(client, seed_data):
     assert msgs[1]["citations"][0]["n"] == 1
     assert client.delete(f"/api/conversations/{cid}").status_code == 204
     assert client.get(f"/api/conversations/{cid}/messages").status_code == 404
+
+
+def test_ask_question_appears_only_once_in_llm_messages(client, seed_data, monkeypatch):
+    import app.services.chat.service as chat_service
+
+    RecordingFakeLLM.instances.clear()
+    monkeypatch.setattr(chat_service, "build_llm_provider", lambda cfg: RecordingFakeLLM("签收后 7 天内可申请退款 [1]。"))
+
+    with SessionLocal() as s:
+        conv = Conversation(workspace_id=seed_data["ws_id"])
+        s.add(conv)
+        s.commit()
+        # 预置历史（不含本问）
+        s.add(Message(conversation_id=conv.id, role="user", content="历史问题"))
+        s.add(Message(conversation_id=conv.id, role="assistant", content="历史回答"))
+        s.commit()
+        cid = conv.id
+    with client.stream("POST", f"/api/conversations/{cid}/ask", json={"question": QUERY}) as resp:
+        assert resp.status_code == 200
+        body = b"".join(resp.iter_bytes()).decode()
+    assert '"type":"done"' in body
+    llm = RecordingFakeLLM.instances[-1]
+    assert llm.seen_messages is not None
+    assert llm.seen_messages[0]["role"] == "system"
+    user_msgs = [m for m in llm.seen_messages if m["role"] == "user"]
+    assert [m["content"] for m in user_msgs] == ["历史问题", QUERY]  # 本问恰好一次
+    with SessionLocal() as s:
+        s.delete(s.get(Conversation, cid))
+        s.commit()
 
 
 def test_ask_includes_recent_history_in_prompt(client, seed_data):

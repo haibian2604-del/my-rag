@@ -71,16 +71,17 @@ async def ask_stream(conversation_id: int, question: str) -> AsyncIterator[str]:
         if not conv:
             yield _sse({"type": "error", "message": "会话不存在"})
             return
-        s.add(Message(conversation_id=conversation_id, role="user", content=question))
-        s.commit()
-
         try:
             llm = get_llm_or_raise(s)
             hits = await retrieve(conv.workspace_id, question)
             ctx, citations = build_context(hits)
+            # 先取历史（不含本问），再落库 user 消息，避免历史里混入刚写入的问题
+            history = load_history(s, conversation_id)
+            s.add(Message(conversation_id=conversation_id, role="user", content=question))
+            s.commit()
             messages = (
                 [{"role": "system", "content": SYSTEM_PROMPT + (f"\n\n资料：\n{ctx}" if ctx else "")}]
-                + load_history(s, conversation_id)
+                + history
                 + [{"role": "user", "content": question}]
             )
             yield _sse({"type": "citations", "items": citations})

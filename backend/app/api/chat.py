@@ -22,7 +22,7 @@ class MessageOut(BaseModel):
     conversation_id: int
     role: str
     content: str
-    citations: dict | list | None = None
+    citations: list | None = None
 
 
 class AskIn(BaseModel):
