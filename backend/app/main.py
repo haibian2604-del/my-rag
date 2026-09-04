@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -10,6 +11,10 @@ from app.api.settings import router as settings_router
 from app.api.workspaces import router as workspaces_router
 from app.core.config import settings
 
+logging.basicConfig(level=logging.INFO)
+
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -17,8 +22,8 @@ async def lifespan(app: FastAPI):
         from app.jobs.runner import recover_interrupted
 
         recover_interrupted()
-    except Exception:  # noqa: BLE001, S110 — 无库等场景不阻塞应用启动
-        pass
+    except Exception as e:  # noqa: BLE001 — 无库等场景不阻塞应用启动
+        logger.warning("启动恢复中断文档失败: %s", e)
     yield
 
 

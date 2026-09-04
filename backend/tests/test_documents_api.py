@@ -36,8 +36,12 @@ def test_upload_md_201_then_ready(client, ws):
     )
     assert resp.status_code == 201
     body = resp.json()
-    assert body["status"] == "pending"
     doc_id = body["id"]
+    # 上传触发后台摄取；TestClient 中后台任务同步执行，fake provider 应到 ready
+    with SessionLocal() as s:
+        doc = s.get(Document, doc_id)
+        assert doc.status == "ready"
+        assert doc.error is None
     _cleanup_doc(doc_id)
 
 

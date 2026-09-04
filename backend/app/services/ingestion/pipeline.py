@@ -3,6 +3,7 @@
 状态：pending → parsing → embedding → ready；任一步异常置 failed 并写 error。
 """
 from pathlib import Path
+import logging
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -14,6 +15,8 @@ from app.providers.embedding.fake import FakeEmbedding
 from app.providers.embedding.openai_compat import OpenAICompatEmbedding
 from app.services.ingestion.chunking import split_blocks
 from app.services.ingestion.parsing import parse_file
+
+logger = logging.getLogger(__name__)
 
 
 def doc_file_path(doc: Document) -> Path:
@@ -95,4 +98,5 @@ async def ingest_document(document_id: int) -> None:
                 doc.status = "failed"
                 doc.error = str(e)[:2000]
                 s.commit()
+            logger.error("文档 %s 摄取失败: %s", document_id, e)
             raise

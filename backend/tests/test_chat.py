@@ -207,3 +207,53 @@ def test_ask_includes_recent_history_in_prompt(client, seed_data):
         assert hist[-1]["content"] == "历史问题 11"
         s.delete(s.get(Conversation, cid))
         s.commit()
+
+
+def test_ask_reads_workspace_params(client, seed_data, monkeypatch):
+    """工作区 params 应接线到检索与上下文组装（top_k/score_threshold/use_rerank/context_max_tokens）。"""
+    import app.services.chat.service as chat_service
+
+    RecordingFakeLLM.instances.clear()
+    monkeypatch.setattr(chat_service, "build_llm_provider", lambda cfg: RecordingFakeLLM("回答。"))
+
+    recorded = {}
+
+    async def fake_retrieve(workspace_id, query, use_rerank=None, top_k=5, top_n=3,
+                            score_threshold=0.0):
+        recorded.update(workspace_id=workspace_id, query=query, use_rerank=use_rerank,
+                        top_k=top_k, score_threshold=score_threshold)
+        return []
+
+    monkeypatch.setattr(chat_service, "retrieve", fake_retrieve)
+
+    with SessionLocal() as s:
+        ws = s.get(Workspace, seed_data["ws_id"])
+        ws.params = {"top_k": 9, "score_threshold": 0.42, "use_rerank": False,
+                     "context_max_tokens": 800}
+        s.commit()
+        conv = Conversation(workspace_id=ws.id)
+        s.add(conv)
+        s.commit()
+        cid = conv.id
+    with client.stream("POST", f"/api/conversations/{cid}/ask", json={"question": QUERY}) as resp:
+        assert resp.status_code == 200
+        body = b"".join(resp.iter_bytes()).decode()
+    assert '"type":"done"' in body
+    assert recorded["workspace_id"] == seed_data["ws_id"]
+    assert recorded["top_k"] == 9
+    assert recorded["score_threshold"] == 0.42
+    assert recorded["use_rerank"] is False
+
+    # context_max_tokens 接线：build_context 的 max_tokens 默认 3000，这里应取 800
+    from app.services.retrieval.context import build_context
+    hits = [{"filename": "a.md", "heading_path": "", "page_no": 1,
+             "content": "字" * 5000}]
+    ctx_small, cit_small = build_context(hits, max_tokens=800)
+    assert cit_small and len(ctx_small) <= 800 * 2
+
+    with SessionLocal() as s:
+        ws = s.get(Workspace, seed_data["ws_id"])
+        ws.params = {}
+        s.commit()
+        s.delete(s.get(Conversation, cid))
+        s.commit()

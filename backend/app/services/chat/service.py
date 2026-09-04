@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import SessionLocal
-from app.models.entities import Conversation, Message, ProviderConfig
+from app.models.entities import Conversation, Message, ProviderConfig, Workspace
 from app.providers.llm.fake import FakeLLM
 from app.providers.llm.openai_compat import OpenAICompatLLM
 from app.services.ingestion.pipeline import get_default_provider
@@ -73,8 +73,16 @@ async def ask_stream(conversation_id: int, question: str) -> AsyncIterator[str]:
             return
         try:
             llm = get_llm_or_raise(s)
-            hits = await retrieve(conv.workspace_id, question)
-            ctx, citations = build_context(hits)
+            ws = s.get(Workspace, conv.workspace_id)
+            ws_params = dict(ws.params or {}) if ws else {}
+            top_k = int(ws_params.get("top_k", 5))
+            score_threshold = float(ws_params.get("score_threshold", 0.0))
+            _rerank = ws_params.get("use_rerank")
+            use_rerank = None if _rerank is None else bool(_rerank)
+            max_tokens = int(ws_params.get("context_max_tokens", 3000))
+            hits = await retrieve(conv.workspace_id, question, use_rerank=use_rerank,
+                                  top_k=top_k, score_threshold=score_threshold)
+            ctx, citations = build_context(hits, max_tokens=max_tokens)
             # 先取历史（不含本问），再落库 user 消息，避免历史里混入刚写入的问题
             history = load_history(s, conversation_id)
             s.add(Message(conversation_id=conversation_id, role="user", content=question))

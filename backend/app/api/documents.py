@@ -45,7 +45,8 @@ def _get_ws(s, ws_id: int) -> Workspace:
 
 
 @router.post("/workspaces/{ws_id}/documents", response_model=DocumentOut, status_code=201)
-async def upload_document(ws_id: int, file: UploadFile = File(...)):  # noqa: B008
+async def upload_document(ws_id: int, background_tasks: BackgroundTasks,
+                          file: UploadFile = File(...)):  # noqa: B008
     filename = FsPath(file.filename or "").name
     ext = FsPath(filename).suffix.lower()
     if ext not in ALLOWED_EXTS:
@@ -70,6 +71,7 @@ async def upload_document(ws_id: int, file: UploadFile = File(...)):  # noqa: B0
             s.rollback()
             raise HTTPException(status_code=500, detail="文件写入失败")
         s.commit()
+        background_tasks.add_task(run_ingestion_sync, doc.id)
         return doc
 
 

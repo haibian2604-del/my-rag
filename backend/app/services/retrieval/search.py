@@ -91,8 +91,9 @@ async def retrieve(
     use_rerank: bool | None = None,
     top_k: int = 5,
     top_n: int = 3,
+    score_threshold: float = 0.0,
 ) -> list[Hit]:
-    hits = await search(workspace_id, query, top_k=top_k)
+    hits = await search(workspace_id, query, top_k=top_k, score_threshold=score_threshold)
     if use_rerank is False or not hits:
         return hits
     with SessionLocal() as s:
