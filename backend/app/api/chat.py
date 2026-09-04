@@ -1,14 +1,15 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from app.core.auth import require_auth
 from app.core.db import SessionLocal
 from app.models.entities import Conversation, Message, Workspace
 from app.services.chat.service import ask_stream, get_llm_or_raise
 from app.services.chat.service import LLMNotConfiguredError
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_auth)])
 
 
 class ConversationOut(BaseModel):

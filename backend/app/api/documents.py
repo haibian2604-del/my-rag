@@ -1,17 +1,18 @@
 import hashlib
 from pathlib import Path as FsPath
 
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
+from app.core.auth import require_auth
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.jobs.runner import run_ingestion_sync
 from app.models.entities import Document, Workspace
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_auth)])
 
 ALLOWED_EXTS = {".md", ".txt", ".pdf", ".docx"}
 MAX_SIZE = 50 * 1024 * 1024  # 50MB
