@@ -1,0 +1,162 @@
+"""会话与流式问答测试：SSE 事件序列 / 消息落库 / 历史 / LLM 未配置 400。"""
+import asyncio
+from uuid import uuid4
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+
+from app.core.db import SessionLocal
+from app.models.entities import (
+    Chunk,
+    ChunkEmbedding,
+    Conversation,
+    Document,
+    Message,
+    ProviderConfig,
+    Workspace,
+)
+from app.providers.embedding.fake import FakeEmbedding
+
+QUERY = "退款政策几天可以退款"
+
+
+@pytest.fixture
+def client() -> TestClient:
+    from app.main import create_app
+
+    return TestClient(create_app())
+
+
+@pytest.fixture
+def seed_data():
+    """复用 test_retrieval 的思路：手工插入 chunk + embedding，保证检索命中。"""
+    fake = FakeEmbedding(dim=4)
+    refund_text = "本店退款政策：签收后 7 天内可申请退款，15 天内可换货。"
+    ship_text = "本店发货时间为工作日 48 小时内，偏远地区除外。"
+    qvec = asyncio.run(fake.embed([QUERY]))[0]
+    ship_vec = asyncio.run(fake.embed([ship_text]))[0]
+
+    added = {"workspaces": [], "configs": []}
+    with SessionLocal() as s:
+        ws = Workspace(name=f"ws-{uuid4()}")
+        emb_cfg = ProviderConfig(kind="embedding", provider="fake", base_url="", model="fake",
+                                 is_default=True, params={"dim": 4})
+        llm_cfg = ProviderConfig(kind="llm", provider="fake", base_url="", model="fake",
+                                 is_default=True, params={"reply": "签收后 7 天内可申请退款 [1]。"})
+        s.add_all([ws, emb_cfg, llm_cfg])
+        s.flush()
+        added["workspaces"].append(ws.id)
+        added["configs"] = [emb_cfg.id, llm_cfg.id]
+
+        doc = Document(workspace_id=ws.id, filename="refund.md", source_type="upload",
+                       mime="text/markdown", size=10, checksum=f"c-{uuid4()}", status="ready")
+        s.add(doc)
+        s.flush()
+        c1 = Chunk(document_id=doc.id, workspace_id=ws.id, ordinal=0, content=refund_text,
+                   token_count=10, heading_path="售后/退款", page_no=1)
+        c2 = Chunk(document_id=doc.id, workspace_id=ws.id, ordinal=1, content=ship_text,
+                   token_count=10, heading_path="发货", page_no=2)
+        s.add_all([c1, c2])
+        s.flush()
+        s.add_all([
+            ChunkEmbedding(chunk_id=c1.id, workspace_id=ws.id, model_name="fake",
+                           dim=4, embedding=qvec),
+            ChunkEmbedding(chunk_id=c2.id, workspace_id=ws.id, model_name="fake",
+                           dim=4, embedding=ship_vec),
+        ])
+        s.commit()
+        yield {"ws": ws, "ws_id": ws.id, "llm_cfg_id": llm_cfg.id}
+        for w in added["workspaces"]:
+            s.delete(s.get(Workspace, w))
+        for cid in added["configs"]:
+            s.delete(s.get(ProviderConfig, cid))
+        s.commit()
+
+
+def test_create_conversation_201(client, seed_data):
+    resp = client.post(f"/api/workspaces/{seed_data['ws_id']}/conversations")
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["workspace_id"] == seed_data["ws_id"]
+    assert body["title"] == "新对话"
+
+
+def test_ask_streams_citations_and_persists(client, seed_data):
+    with SessionLocal() as s:
+        conv = Conversation(workspace_id=seed_data["ws_id"])
+        s.add(conv)
+        s.commit()
+        cid = conv.id
+    with client.stream("POST", f"/api/conversations/{cid}/ask",
+                       json={"question": QUERY}) as resp:
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        body = b"".join(resp.iter_bytes()).decode()
+    assert '"type":"citations"' in body and '"type":"delta"' in body and '"type":"done"' in body
+    # 事件顺序：citations 先于 delta 先于 done
+    assert body.index('"type":"citations"') < body.index('"type":"delta"') < body.index('"type":"done"')
+    with SessionLocal() as s:
+        msgs = s.execute(select(Message).where(Message.conversation_id == cid)
+                         .order_by(Message.id)).scalars().all()
+        assert [m.role for m in msgs] == ["user", "assistant"]
+        assert msgs[1].citations and msgs[1].citations[0]["n"] == 1
+        assert msgs[1].content.startswith("签收后")
+        # 清理
+        s.delete(s.get(Conversation, cid))
+        s.commit()
+
+
+def test_ask_without_llm_config_returns_400(client, seed_data):
+    with SessionLocal() as s:
+        llm_cfg = s.get(ProviderConfig, seed_data["llm_cfg_id"])
+        s.delete(llm_cfg)
+        s.commit()
+        conv = Conversation(workspace_id=seed_data["ws_id"])
+        s.add(conv)
+        s.commit()
+        cid = conv.id
+        s.delete(s.get(Conversation, cid))
+    resp = client.post(f"/api/conversations/{cid}/ask", json={"question": QUERY})
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "未配置 LLM 模型"
+
+
+def test_history_messages_roundtrip(client, seed_data):
+    resp = client.post(f"/api/workspaces/{seed_data['ws_id']}/conversations")
+    cid = resp.json()["id"]
+    with SessionLocal() as s:
+        s.add_all([
+            Message(conversation_id=cid, role="user", content="问题一"),
+            Message(conversation_id=cid, role="assistant", content="回答一",
+                    citations=[{"n": 1, "filename": "a.md", "heading_path": "", "page_no": 1,
+                                "snippet": "..."}]),
+        ])
+        s.commit()
+    resp = client.get(f"/api/conversations/{cid}/messages")
+    assert resp.status_code == 200
+    msgs = resp.json()
+    assert [m["role"] for m in msgs] == ["user", "assistant"]
+    assert msgs[1]["citations"][0]["n"] == 1
+    assert client.delete(f"/api/conversations/{cid}").status_code == 204
+    assert client.get(f"/api/conversations/{cid}/messages").status_code == 404
+
+
+def test_ask_includes_recent_history_in_prompt(client, seed_data):
+    with SessionLocal() as s:
+        conv = Conversation(workspace_id=seed_data["ws_id"])
+        s.add(conv)
+        s.commit()
+        cid = conv.id
+        # 造 12 条历史，验证仅取最近 10 条
+        for i in range(12):
+            s.add(Message(conversation_id=cid, role="user", content=f"历史问题 {i}"))
+        s.commit()
+    from app.services.chat.service import load_history
+    with SessionLocal() as s:
+        hist = load_history(s, cid)
+        assert len(hist) == 10
+        assert hist[0]["content"] == "历史问题 2"
+        assert hist[-1]["content"] == "历史问题 11"
+        s.delete(s.get(Conversation, cid))
+        s.commit()
