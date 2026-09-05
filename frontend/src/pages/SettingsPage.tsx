@@ -80,7 +80,7 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
   const activeKind = KINDS.find((k) => k.key === tab)!;
 
   return (
-    <div className="mx-auto h-full max-w-2xl overflow-y-auto px-4 py-6">
+    <div className="mx-auto h-full max-w-5xl overflow-y-auto px-4 py-6">
       <h1 className="font-display text-lg">设置</h1>
 
       <section className="mt-6">
@@ -115,8 +115,9 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
         </div>
       </section>
 
-      <section className="mt-8 border-t border-line pt-6">
-        <h2 className="font-display text-base">检索参数</h2>
+      <div className="mt-8 grid grid-cols-1 items-start gap-x-12 gap-y-8 border-t border-line pt-6 lg:grid-cols-2">
+        <section className="lg:border-r lg:border-line lg:pr-12">
+          <h2 className="font-display text-base">检索参数</h2>
         <p className="mt-1 text-xs text-faint">控制每次回答时如何从文档中取材，改动只影响当前工作区。</p>
         {wsSettings && (
           <>
@@ -186,7 +187,7 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
         )}
       </section>
 
-      <section className="mt-8 border-t border-line pt-6">
+      <section className="min-w-0">
         <h2 className="font-display text-base">访问密码</h2>
         <p className="mt-1 text-xs leading-5 text-faint">
           默认仅本机可访问、无需密码。要在局域网里用其他设备访问时建议开启；
@@ -218,6 +219,7 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
           <p className={`mt-2 text-sm ${appMsgError ? "text-seal" : "text-faint"}`}>{appMsg}</p>
         )}
       </section>
+      </div>
     </div>
   );
 }
