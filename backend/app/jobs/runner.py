@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from app.core.db import SessionLocal
 from app.models.entities import Document
+from app.services.embedding_switch import reembed_all
 from app.services.ingestion.pipeline import ingest_document
 
 logger = logging.getLogger(__name__)
@@ -12,6 +13,10 @@ logger = logging.getLogger(__name__)
 
 def run_ingestion_sync(document_id: int) -> None:
     asyncio.run(ingest_document(document_id))
+
+
+def run_reembed_sync(target_model: str) -> None:
+    asyncio.run(reembed_all(target_model))
 
 
 def recover_interrupted() -> None:
