@@ -3,12 +3,26 @@
 Hit 结构：{"chunk_id","document_id","filename","content","heading_path","page_no","score"}
 score = 1 - 余弦距离（即余弦相似度），结果按相似度降序返回。
 """
+import logging
+
 from sqlalchemy import text
 
 from app.core.db import SessionLocal
+from app.providers.rerank.omlx import OMLXRerank
 from app.services.ingestion.pipeline import build_embedding_provider, get_default_provider
 
+logger = logging.getLogger(__name__)
+
 Hit = dict
+
+
+def build_rerank_provider(cfg):
+    """根据 rerank provider 配置构造重排器（模式同 build_embedding_provider）。"""
+    if cfg.provider == "openai_compat":
+        from app.services.providers_service import decrypt_api_key
+        return OMLXRerank(base_url=cfg.base_url, model=cfg.model,
+                          api_key=decrypt_api_key(cfg))
+    raise RuntimeError(f"不支持的 rerank provider：{cfg.provider}")
 
 
 def _to_pgvector_string(vec: list[float]) -> str:
@@ -92,7 +106,13 @@ async def retrieve(
             cfg = get_default_provider(s, "rerank")
         except RuntimeError:
             return hits
-    if cfg.provider != "fake":
-        # 真实 rerank HTTP 调用 M3 联调时接入，M1 跳过
+    if cfg.provider == "fake":
+        return _rerank_hits(query, hits, top_n)
+    try:
+        provider = build_rerank_provider(cfg)
+        idxs = await provider.rerank(query, [h["content"] for h in hits], top_n)
+        # rerank 只重排+截断 top_n，不扩大集合
+        return [hits[i] for i in idxs]
+    except Exception:  # rerank 失败降级，检索永不因 rerank 失败而失败
+        logger.warning("rerank 调用失败，降级返回未重排结果", exc_info=True)
         return hits
-    return _rerank_hits(query, hits, top_n)
