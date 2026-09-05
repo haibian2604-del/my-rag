@@ -3,7 +3,7 @@ from pathlib import Path as FsPath
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from app.core.auth import require_auth
@@ -11,6 +11,7 @@ from app.core.db import SessionLocal
 from app.jobs.runner import run_ingestion_sync
 from app.models.entities import Document, Workspace
 from app.services.ingestion.pipeline import doc_file_path
+from app.services.ingestion.web_fetch import UrlFetchError, fetch_url_to_doc
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -68,6 +69,22 @@ async def upload_document(ws_id: int, background_tasks: BackgroundTasks,
         s.commit()
         background_tasks.add_task(run_ingestion_sync, doc.id)
         return doc
+
+
+class UrlIn(BaseModel):
+    url: str = Field(min_length=1)
+
+
+@router.post("/workspaces/{ws_id}/documents/url", response_model=DocumentOut, status_code=201)
+async def fetch_url_document(ws_id: int, body: UrlIn, background_tasks: BackgroundTasks):
+    with SessionLocal() as s:
+        _get_ws(s, ws_id)
+    try:
+        doc = await fetch_url_to_doc(ws_id, body.url)
+    except UrlFetchError as e:
+        raise HTTPException(status_code=400, detail=str(e)[:500])
+    background_tasks.add_task(run_ingestion_sync, doc.id)
+    return doc
 
 
 @router.get("/workspaces/{ws_id}/documents", response_model=list[DocumentOut])
