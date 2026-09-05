@@ -8,3 +8,15 @@ storage/
 .env
 .pytest_cache/
 .ruff_cache/
+
+# SDD 工作区（superpowers 执行脚手架）
+.superpowers/
+
+# 系统与编辑器
+.DS_Store
+.idea/
+.vscode/
+
+# 测试与缓存
+coverage/
+*.local

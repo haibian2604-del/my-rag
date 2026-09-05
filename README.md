@@ -1,0 +1,65 @@
+# 知笥 · 个人知识库
+
+自托管的中文优先个人知识库：上传文档（PDF / Word / Markdown / TXT），自动解析、切分并向量化，然后对话式问答——回答基于你的文档生成，并附带可溯源的引用标记。
+
+> 命名取自「笥」（sì）：古时藏书之箧。设计语言为纸、墨、钤印：回答以衬线正文排版，引用以印泥红的「笺注」挂在答案下方。
+
+## 功能
+
+- **文档摄取**：上传 md / txt / pdf / docx，后台任务解析 → 结构感知切分（保留标题路径、页码）→ 嵌入 → pgvector 入库；状态机（排队/解析/向量化/可问答/失败）全程可见，服务重启自动恢复
+- **检索问答**：向量召回（限定工作区、限定就绪文档、限定嵌入模型）→ 流式回答（SSE）→ 引用角标溯源（文件名 / 章节路径 / 页码 / 原文片段）
+- **模型可插拔**：任何 OpenAI 兼容端点均可（[oMLX](https://omlx.ai/) / Ollama / vLLM / 云 API）；设置页支持连接测试与模型自动发现，密钥加密存储
+- **多工作区**：不同知识域相互隔离；工作区级检索参数（Top K / 相似度阈值 / 上下文上限）
+- **可选密码**：默认本机免密，可在设置页开启访问密码（JWT Cookie）
+
+## 技术栈
+
+| 层 | 选型 |
+|---|---|
+| 后端 | Python 3.12 · FastAPI · SQLAlchemy 2.0 · Alembic |
+| 存储 | PostgreSQL 16 + pgvector（业务数据、向量、任务状态单库承载） |
+| 前端 | React 19 · Vite · TypeScript · Tailwind CSS 4 |
+| 文档解析 | PyMuPDF · python-docx · markdown-it-py |
+| 模型接入 | httpx 直连 OpenAI 兼容协议（不依赖 openai SDK / LangChain） |
+
+架构原则：单服务 + 单库，无 Redis / Celery / 独立向量库；`providers/` 是唯一出现外部 AI 调用的模块；所有后台任务有状态机与启动恢复。设计取舍详见 [docs/02-实现方案.md](docs/02-实现方案.md)（竞品分析见 [docs/01-竞品分析.md](docs/01-竞品分析.md)）。
+
+## 本地开发
+
+依赖：Python 3.12（[uv](https://docs.astral.sh/uv/)）、Node ≥ 20（pnpm）、PostgreSQL 16 + pgvector。
+
+```bash
+# 1. 数据库（已有 pgvector 实例可跳过）
+docker run -d --name pgvector -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=123456 -p 5432:5432 pgvector/pgvector:pg16
+docker exec pgvector psql -U postgres -c "CREATE DATABASE rag;"
+docker exec pgvector psql -U postgres -d rag -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+# 2. 后端（默认连 postgresql://postgres:...@localhost:5432/rag，
+#    可用 backend/.env 覆盖：RAG_DATABASE_URL=postgresql+psycopg://...）
+cd backend && uv sync && uv run alembic upgrade head
+uv run uvicorn app.main:app --port 8080
+
+# 3. 前端（dev 代理 /api → localhost:8080）
+cd frontend && pnpm install && pnpm dev
+```
+
+打开 http://localhost:5173 ，在「设置」页配置模型服务地址与模型名，测试连接通过后上传文档即可问答。
+
+### 测试
+
+```bash
+cd backend && uv run pytest -v      # 62 个用例（含真实库集成测试）
+cd frontend && pnpm vitest run
+```
+
+## 部署
+
+容器化部署（docker compose）尚未加入，属下一阶段工作；当前按上面的本地开发方式运行。接入局域网前请在服务端用环境变量覆盖 `RAG_JWT_SECRET` 与 `RAG_ENCRYPTION_KEY`。
+
+## Roadmap
+
+- [ ] Docker Compose 一键部署（含 SPA 托管）
+- [ ] 中文检索评测集与 recall@5 脚本
+- [ ] M2：网页 URL 抓取入库、嵌入模型切换向导（并行重嵌 / 回滚）
+- [ ] M3：重排接入默认链路、混合检索
