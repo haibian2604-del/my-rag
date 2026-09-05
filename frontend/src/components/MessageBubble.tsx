@@ -10,36 +10,37 @@ export interface ChatMessage {
 }
 
 export default function MessageBubble({ message }: { message: ChatMessage }) {
-  const isUser = message.role === "user";
-  return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className="max-w-3xl space-y-2">
-        <div
-          className={
-            isUser
-              ? "rounded-lg bg-blue-600 px-4 py-2 text-white whitespace-pre-wrap"
-              : "prose prose-sm max-w-none rounded-lg bg-gray-100 px-4 py-2 text-gray-900 [&_p]:my-1 [&_pre]:my-2 [&_code]:text-xs"
-          }
-          // 用户消息纯文本展示；assistant 内容经 marked + DOMPurify 消毒
-          {...(isUser
-            ? {}
-            : { dangerouslySetInnerHTML: { __html: renderMarkdown(message.content) } })}
-        >
-          {isUser ? message.content : null}
+  if (message.role === "user") {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[70%] whitespace-pre-wrap rounded-xl rounded-br-sm bg-paper-deep px-4 py-2.5 text-[15px] leading-6">
+          {message.content}
         </div>
-        {message.error && (
-          <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {message.error}
-          </div>
-        )}
-        {message.citations && message.citations.length > 0 && (
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-[72ch]">
+      {/* assistant 回答不用气泡，按阅读行长排成正文 */}
+      <div
+        className="md"
+        // 内容经 marked + DOMPurify 消毒后再注入
+        dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
+      />
+      {message.error && (
+        <p className="mt-1 text-sm text-seal">{message.error}</p>
+      )}
+      {message.citations && message.citations.length > 0 && (
+        <div className="mt-3 border-t border-line pt-3">
+          <p className="mb-2 text-xs text-faint">来源</p>
           <div className="space-y-2">
             {message.citations.map((c) => (
               <CitationCard key={c.n} citation={c} />
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

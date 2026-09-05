@@ -1,1 +1,138 @@
 @import "tailwindcss";
+
+@theme {
+  --color-paper: #f5f5f0;
+  --color-paper-deep: #ecece4;
+  --color-card: #ffffff;
+  --color-ink: #24272b;
+  --color-faint: #6f747a;
+  --color-line: #e2e2d9;
+  --color-iblue: #34566b;
+  --color-iblue-soft: #eef2f4;
+  --color-seal: #a63d2f;
+  --color-seal-soft: #f7ece9;
+  --color-ok: #4a7c59;
+
+  --font-display: "Songti SC", "STSong", "Noto Serif CJK SC", "SimSun", serif;
+}
+
+@layer base {
+  html {
+    font-family:
+      -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+      "Microsoft YaHei", "Segoe UI", sans-serif;
+  }
+  body {
+    @apply bg-paper text-ink antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-iblue);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--color-iblue);
+    color: #fff;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+}
+
+@layer components {
+  .input {
+    @apply w-full rounded-md border border-line bg-card px-2.5 py-1.5 text-sm text-ink;
+    @apply placeholder:text-faint/60 focus:border-iblue focus:outline-none;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3.5 py-1.5 text-sm;
+    @apply bg-iblue text-white transition-colors hover:bg-iblue/90;
+    @apply disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-line bg-card px-3 py-1.5 text-sm text-ink;
+    @apply transition-colors hover:bg-paper-deep disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .panel {
+    @apply rounded-lg border border-line bg-card;
+  }
+
+  /* 回答正文：批注手稿式排版 */
+  .md {
+    @apply font-display text-[15px] leading-7;
+  }
+  .md p {
+    @apply my-2;
+  }
+  .md h1,
+  .md h2,
+  .md h3,
+  .md h4 {
+    @apply my-3 font-semibold;
+  }
+  .md h1 {
+    @apply text-lg;
+  }
+  .md h2 {
+    @apply text-base;
+  }
+  .md h3 {
+    @apply text-[15px];
+  }
+  .md ul {
+    @apply my-2 list-disc pl-5;
+  }
+  .md ol {
+    @apply my-2 list-decimal pl-5;
+  }
+  .md li {
+    @apply my-0.5;
+  }
+  .md code {
+    @apply rounded bg-paper-deep px-1 py-0.5 font-mono text-[13px];
+  }
+  .md pre {
+    @apply my-2 overflow-x-auto rounded-md bg-ink p-3 text-[13px] leading-6 text-paper;
+  }
+  .md pre code {
+    @apply bg-transparent p-0 text-inherit;
+  }
+  .md blockquote {
+    @apply my-2 border-l-2 border-line pl-3 text-faint;
+  }
+  .md a {
+    @apply text-iblue underline decoration-iblue/40 underline-offset-2;
+  }
+  .md table {
+    @apply my-2 w-full border-collapse text-[13px];
+  }
+  .md th,
+  .md td {
+    @apply border border-line px-2 py-1 text-left;
+  }
+  .md hr {
+    @apply my-3 border-line;
+  }
+
+  /* 处理中状态的呼吸圆点 */
+  .dot {
+    @apply inline-block h-2 w-2 shrink-0 rounded-full;
+  }
+  .dot-live {
+    animation: dot-breathe 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes dot-breathe {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}

@@ -9,6 +9,12 @@ interface Conversation {
   title: string;
 }
 
+const STARTERS = [
+  "这份资料的主要内容是什么？",
+  "帮我总结其中的要点",
+  "资料里提到了哪些数据或步骤？",
+];
+
 export default function ChatPage({ workspace }: { workspace: Workspace }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -16,7 +22,10 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
   const [input, setInput] = useState("");
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState("");
+  const [docSummary, setDocSummary] = useState<{ ready: number; total: number } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const convListKey = `conversations.ws.${workspace.id}`;
 
@@ -38,6 +47,18 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
     setConversations(loadConversations());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.id]);
+
+  // 空状态引导：显示可问答的文档数
+  useEffect(() => {
+    get<{ status: string }[]>(`/api/workspaces/${workspace.id}/documents`)
+      .then((list) =>
+        setDocSummary({
+          ready: list.filter((d) => d.status === "ready").length,
+          total: list.length,
+        }),
+      )
+      .catch(() => undefined);
+  }, [workspace.id, messages.length]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -70,6 +91,7 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
       setActiveId(conv.id);
       setMessages([]);
       setError("");
+      taRef.current?.focus();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "创建会话失败");
     }
@@ -88,14 +110,18 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
     }
   };
 
-  const ask = async () => {
-    if (!input.trim() || !activeId || asking) return;
-    const question = input.trim();
-    setInput("");
+  const ask = async (questionRaw?: string) => {
+    const question = (questionRaw ?? input).trim();
+    if (!question || !activeId || asking) return;
+    if (!questionRaw) {
+      setInput("");
+      resizeTa();
+    }
     setError("");
     setAsking(true);
+    abortRef.current = new AbortController();
     const conv = conversations.find((c) => c.id === activeId);
-    if (conv && !conv.title) {
+    if (conv && (!conv.title || conv.title === "新对话")) {
       saveConversations(
         conversations.map((c) => (c.id === activeId ? { ...c, title: question.slice(0, 20) } : c)),
       );
@@ -111,6 +137,7 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question }),
+        signal: abortRef.current.signal,
       });
       if (!resp.ok || !resp.body) {
         let detail = `HTTP ${resp.status}`;
@@ -130,7 +157,10 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
         } else if (ev.type === "delta") {
           setMessages((prev) => {
             const copy = [...prev];
-            copy[copy.length - 1] = { ...copy[copy.length - 1], content: copy[copy.length - 1].content + ev.text };
+            copy[copy.length - 1] = {
+              ...copy[copy.length - 1],
+              content: copy[copy.length - 1].content + ev.text,
+            };
             return copy;
           });
         } else if (ev.type === "error") {
@@ -146,8 +176,12 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
         return copy;
       });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "提问失败";
-      setError(msg);
+      if (e instanceof DOMException && e.name === "AbortError") {
+        // 用户主动停止：保留已生成的部分
+      } else {
+        const msg = e instanceof Error ? e.message : "提问失败";
+        setError(msg);
+      }
       setMessages((prev) => {
         const copy = [...prev];
         const last = copy[copy.length - 1];
@@ -157,39 +191,72 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
         return copy;
       });
     } finally {
+      abortRef.current = null;
       setAsking(false);
     }
   };
 
+  const stop = () => {
+    abortRef.current?.abort();
+  };
+
+  const resizeTa = () => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // 中文输入法组词中的回车不发送
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      void ask();
+    }
+  };
+
+  const activeConv = conversations.find((c) => c.id === activeId);
+  const waitingFirstToken =
+    asking && messages[messages.length - 1]?.role === "assistant" && !messages[messages.length - 1]?.content;
+
+  const emptyHint = () => {
+    if (!activeId) return "新建或选择一个会话，向自己的文档提问";
+    const { ready, total } = docSummary ?? { ready: 0, total: 0 };
+    if (total === 0) return "书箧还是空的——先到「文档库」上传文档，再来提问";
+    if (ready === 0) return "文档正在处理中，等它们变为「可问答」后就能提问了";
+    return null;
+  };
+  const hint = emptyHint();
+
   return (
-    <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-6xl gap-4">
-      <aside className="flex w-56 shrink-0 flex-col rounded border border-gray-200 bg-white">
-        <button
-          className="m-2 rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
-          onClick={newConversation}
-        >
-          新建会话
-        </button>
-        <ul className="flex-1 overflow-y-auto">
+    <div className="flex h-full min-h-0">
+      <aside className="flex w-52 shrink-0 flex-col border-r border-line bg-card max-md:hidden">
+        <div className="p-2.5">
+          <button className="btn-ghost w-full" onClick={() => void newConversation()}>
+            新建会话
+          </button>
+        </div>
+        <ul className="min-h-0 flex-1 overflow-y-auto pb-2">
           {conversations.length === 0 && (
-            <li className="px-3 py-2 text-xs text-gray-400">暂无会话</li>
+            <li className="px-3 py-2 text-xs text-faint">暂无会话</li>
           )}
           {conversations.map((c) => (
-            <li
-              key={c.id}
-              className={`group flex items-center gap-1 px-2 py-1.5 text-sm hover:bg-gray-50 ${
-                activeId === c.id ? "bg-blue-50" : ""
-              }`}
-            >
+            <li key={c.id} className="group relative">
               <button
-                className="min-w-0 flex-1 truncate text-left"
+                className={`w-full truncate px-3 py-2 pr-8 text-left text-sm transition-colors ${
+                  activeId === c.id
+                    ? "bg-iblue-soft font-medium text-iblue"
+                    : "text-ink hover:bg-paper"
+                }`}
                 onClick={() => void openConversation(c.id)}
+                title={c.title || `会话 #${c.id}`}
               >
                 {c.title || `会话 #${c.id}`}
               </button>
               <button
-                className="hidden text-xs text-red-500 group-hover:block"
+                className="absolute right-2 top-2 hidden text-xs text-seal group-hover:block"
                 onClick={() => void removeConversation(c.id)}
+                title="删除会话"
               >
                 删除
               </button>
@@ -197,40 +264,87 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
           ))}
         </ul>
       </aside>
-      <div className="flex min-w-0 flex-1 flex-col rounded border border-gray-200 bg-white">
-        <div className="flex-1 space-y-4 overflow-y-auto p-4">
-          {messages.length === 0 && (
-            <p className="py-16 text-center text-sm text-gray-400">
-              {activeId ? "输入问题开始对话" : "请先新建或选择一个会话"}
-            </p>
-          )}
-          {messages.map((m) => (
-            <MessageBubble key={m.id} message={m} />
-          ))}
-          <div ref={bottomRef} />
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="border-b border-line px-5 py-2.5">
+          <p className="truncate font-display text-sm">
+            {activeConv?.title || "未选择会话"}
+          </p>
         </div>
-        {error && <p className="px-4 pb-1 text-sm text-red-600">{error}</p>}
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+          <div className="mx-auto max-w-[72ch] space-y-5">
+            {messages.length === 0 && (
+              <div className="py-14 text-center">
+                {hint ? (
+                  <p className="mt-8 text-sm text-faint">{hint}</p>
+                ) : (
+                  <>
+                    <p className="mt-8 text-sm text-faint">
+                      书箧中有 {docSummary?.ready} 篇文档可问答，试试这些问题：
+                    </p>
+                    <div className="mt-4 flex flex-col items-center gap-2">
+                      {STARTERS.map((s) => (
+                        <button
+                          key={s}
+                          className="rounded-full border border-line bg-card px-4 py-1.5 text-sm text-ink transition-colors hover:border-iblue hover:text-iblue"
+                          onClick={() => void ask(s)}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            {messages.map((m) => (
+              <MessageBubble key={m.id} message={m} />
+            ))}
+            {waitingFirstToken && (
+              <p className="text-sm text-faint">正在检索资料并思考…</p>
+            )}
+            <div ref={bottomRef} />
+          </div>
+        </div>
+
+        {error && <p className="px-5 pb-1 text-sm text-seal">{error}</p>}
+
         <form
-          className="flex gap-2 border-t border-gray-100 p-3"
+          className="border-t border-line p-3"
           onSubmit={(e) => {
             e.preventDefault();
             void ask();
           }}
         >
-          <input
-            className="min-w-0 flex-1 rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={asking ? "回答中…" : "输入问题，回车发送"}
-            disabled={!activeId || asking}
-          />
-          <button
-            type="submit"
-            className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-            disabled={!activeId || asking || !input.trim()}
-          >
-            发送
-          </button>
+          <div className="mx-auto flex max-w-[76ch] items-end gap-2">
+            <textarea
+              ref={taRef}
+              rows={1}
+              className="input max-h-40 resize-none"
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value);
+                resizeTa();
+              }}
+              onKeyDown={onKeyDown}
+              placeholder={activeId ? "问点什么，回车发送，Shift+回车换行" : "先新建一个会话"}
+              disabled={!activeId || asking}
+            />
+            {asking ? (
+              <button type="button" className="btn-ghost shrink-0" onClick={stop}>
+                停止
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className="btn-primary shrink-0"
+                disabled={!activeId || !input.trim()}
+              >
+                发送
+              </button>
+            )}
+          </div>
         </form>
       </div>
     </div>

@@ -17,6 +17,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (resp.status === 204) return undefined as T;
   if (!resp.ok) {
+    // 会话失效时通知应用切换到登录页（登录接口本身除外）
+    if (resp.status === 401 && !path.startsWith("/api/auth/")) {
+      window.dispatchEvent(new CustomEvent("rag:unauthorized"));
+    }
     let detail = `HTTP ${resp.status}`;
     try {
       const data = await resp.json();
@@ -51,9 +55,26 @@ export interface Workspace {
   description: string;
 }
 
-/** 获取默认工作区；不存在则创建 "默认"。 */
-export async function ensureDefaultWorkspace(): Promise<Workspace> {
-  const list = await get<Workspace[]>("/api/workspaces");
-  if (list.length > 0) return list[0];
-  return post<Workspace>("/api/workspaces", { name: "默认", description: "M1 单默认工作区" });
+let wsPromise: Promise<Workspace> | null = null;
+
+/** 获取默认工作区；不存在则创建 "默认"（并发安全，撞名后回读）。 */
+export function ensureDefaultWorkspace(): Promise<Workspace> {
+  wsPromise ??= (async () => {
+    try {
+      const list = await get<Workspace[]>("/api/workspaces");
+      if (list.length > 0) return list[0];
+      try {
+        return await post<Workspace>("/api/workspaces", { name: "默认", description: "" });
+      } catch {
+        // 并发创建撞唯一名：重新拉取
+        const list2 = await get<Workspace[]>("/api/workspaces");
+        if (list2.length > 0) return list2[0];
+        throw new ApiError(409, "创建默认工作区失败");
+      }
+    } catch (e) {
+      wsPromise = null; // 失败不缓存，允许重试
+      throw e;
+    }
+  })();
+  return wsPromise;
 }

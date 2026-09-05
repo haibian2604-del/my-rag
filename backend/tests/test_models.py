@@ -1,3 +1,5 @@
+import uuid
+
 from sqlalchemy import text
 
 from app.core.db import engine, SessionLocal
@@ -6,7 +8,7 @@ from app.models.entities import Workspace, Document
 
 def test_tables_exist_and_relationships():
     with SessionLocal() as s:
-        ws = Workspace(name="默认")
+        ws = Workspace(name=f"test-ws-{uuid.uuid4().hex[:8]}")
         s.add(ws)
         s.flush()
         doc = Document(workspace_id=ws.id, filename="a.pdf", source_type="upload",

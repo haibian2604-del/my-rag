@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ApiError, ensureDefaultWorkspace, type Workspace } from "./api/client";
 import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import SettingsPage from "./pages/SettingsPage";
+import LoginGate from "./components/LoginGate";
 
 type Page = "chat" | "documents" | "settings";
 
@@ -12,49 +13,117 @@ const NAV: { key: Page; label: string }[] = [
   { key: "settings", label: "设置" },
 ];
 
+function BrandMark({ className = "" }: { className?: string }) {
+  return (
+    <span
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-seal font-display text-base text-white ${className}`}
+    >
+      知
+    </span>
+  );
+}
+
 export default function App() {
   const [page, setPage] = useState<Page>("chat");
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [needsAuth, setNeedsAuth] = useState(false);
 
-  useEffect(() => {
-    ensureDefaultWorkspace()
-      .then(setWorkspace)
-      .catch((e) => setError(e instanceof ApiError ? e.message : "初始化失败"));
+  const init = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      setWorkspace(await ensureDefaultWorkspace());
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        setNeedsAuth(true);
+      } else {
+        setError(e instanceof ApiError ? e.message : "初始化失败");
+      }
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
+  useEffect(() => {
+    void init();
+  }, [init]);
+
+  useEffect(() => {
+    const onUnauthorized = () => setNeedsAuth(true);
+    window.addEventListener("rag:unauthorized", onUnauthorized);
+    return () => window.removeEventListener("rag:unauthorized", onUnauthorized);
+  }, []);
+
+  if (needsAuth) {
+    return (
+      <LoginGate
+        onUnlocked={() => {
+          setNeedsAuth(false);
+          void init();
+        }}
+      />
+    );
+  }
+
+  const navButtons = () =>
+    NAV.map((n) => (
+      <button
+        key={n.key}
+        className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+          page === n.key ? "bg-iblue-soft font-medium text-iblue" : "text-faint hover:text-ink"
+        }`}
+        onClick={() => setPage(n.key)}
+      >
+        {n.label}
+      </button>
+    ));
+
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      <header className="flex items-center gap-6 border-b border-gray-200 bg-white px-6 py-3">
-        <span className="text-sm font-bold">My RAG</span>
-        <nav className="flex gap-1">
-          {NAV.map((n) => (
-            <button
-              key={n.key}
-              className={`rounded px-3 py-1.5 text-sm ${
-                page === n.key
-                  ? "bg-blue-600 text-white"
-                  : "text-gray-700 hover:bg-gray-100"
-              }`}
-              onClick={() => setPage(n.key)}
-            >
-              {n.label}
-            </button>
-          ))}
-        </nav>
-        {workspace && <span className="ml-auto text-xs text-gray-400">工作区：{workspace.name}</span>}
-      </header>
-      <main className="p-6">
-        {error && <p className="mx-auto max-w-3xl text-sm text-red-600">{error}</p>}
-        {!workspace && !error && <p className="text-center text-sm text-gray-400">加载中…</p>}
+    <div className="flex h-screen">
+      <aside className="flex w-44 shrink-0 flex-col border-r border-line bg-card max-md:hidden">
+        <div className="flex items-center gap-2.5 px-4 pb-5 pt-5">
+          <BrandMark />
+          <div>
+            <div className="font-display text-lg leading-tight">知笥</div>
+            <div className="text-xs text-faint">个人知识库</div>
+          </div>
+        </div>
+        <nav className="flex flex-col gap-0.5 px-2">{navButtons()}</nav>
         {workspace && (
-          <>
-            {page === "chat" && <ChatPage workspace={workspace} />}
-            {page === "documents" && <DocumentsPage workspace={workspace} />}
-            {page === "settings" && <SettingsPage workspace={workspace} />}
-          </>
+          <div className="mt-auto truncate border-t border-line px-4 py-3 text-xs text-faint">
+            {workspace.name}
+          </div>
         )}
-      </main>
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex items-center gap-3 border-b border-line bg-card px-3 py-2 md:hidden">
+          <BrandMark />
+          <span className="font-display text-base">知笥</span>
+          <nav className="ml-auto flex gap-0.5">{navButtons()}</nav>
+        </header>
+
+        <main className="min-h-0 flex-1">
+          {loading && <p className="py-16 text-center text-sm text-faint">正在打开书箧…</p>}
+          {!loading && error && (
+            <div className="mx-auto max-w-md py-16 text-center">
+              <p className="text-sm text-seal">{error}</p>
+              <button className="btn-ghost mt-3" onClick={() => void init()}>
+                重试
+              </button>
+            </div>
+          )}
+          {!loading && !error && workspace && (
+            <>
+              {page === "chat" && <ChatPage workspace={workspace} />}
+              {page === "documents" && <DocumentsPage workspace={workspace} />}
+              {page === "settings" && <SettingsPage workspace={workspace} />}
+            </>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

@@ -66,8 +66,7 @@ export default function ProviderForm({
         api_key: apiKey.trim() || undefined,
       });
       const ms = Math.round(performance.now() - started);
-      const extra =
-        kind === "embedding" && res.dim != null ? `，维度 ${res.dim}` : "";
+      const extra = kind === "embedding" && res.dim != null ? `，向量维度 ${res.dim}` : "";
       setTestResult({ ok: true, text: `连接成功${extra}，耗时 ${ms}ms` });
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "测试失败";
@@ -98,40 +97,38 @@ export default function ProviderForm({
   };
 
   return (
-    <div className="space-y-3 rounded border border-gray-200 bg-white p-4">
-      <h3 className="text-sm font-semibold text-gray-800">{KIND_LABEL[kind]} 配置</h3>
-      {!provider && (
-        <p className="text-xs text-gray-400">尚未配置，填写后保存。</p>
-      )}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+    <div className="panel space-y-4 p-4">
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-sm font-medium">{KIND_LABEL[kind]}配置</h3>
+        {!provider && <span className="text-xs text-faint">尚未配置，填写后保存</span>}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <label className="block text-sm">
-          <span className="mb-1 block text-gray-600">Base URL</span>
+          <span className="mb-1 block">服务地址</span>
           <input
-            className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+            className="input font-mono text-[13px]"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder="https://api.example.com/v1"
+            placeholder="http://localhost:19723/v1"
           />
         </label>
         <label className="block text-sm">
-          <span className="mb-1 block text-gray-600">API Key（留空保留旧值）</span>
+          <span className="mb-1 block">API Key</span>
           <input
             type="password"
-            className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+            className="input font-mono text-[13px]"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder={provider?.api_key ?? "未设置"}
+            placeholder={provider?.api_key ?? "本地服务通常留空"}
           />
+          <span className="mt-1 block text-xs text-faint">留空则保留已保存的密钥</span>
         </label>
         <label className="block text-sm">
-          <span className="mb-1 block text-gray-600">模型</span>
+          <span className="mb-1 block">模型</span>
           <div className="flex gap-2">
             {models.length > 0 ? (
-              <select
-                className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-              >
+              <select className="input" value={model} onChange={(e) => setModel(e.target.value)}>
                 <option value="">请选择模型</option>
                 {models.map((m) => (
                   <option key={m} value={m}>
@@ -141,51 +138,50 @@ export default function ProviderForm({
               </select>
             ) : (
               <input
-                className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+                className="input font-mono text-[13px]"
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
                 placeholder="模型名称"
               />
             )}
-            <button
-              type="button"
-              className="shrink-0 rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
-              onClick={refreshModels}
-            >
-              刷新模型
+            <button type="button" className="btn-ghost shrink-0 text-xs" onClick={refreshModels}>
+              拉取列表
             </button>
           </div>
+          <span className="mt-1 block text-xs text-faint">可从服务自动发现的模型中选择</span>
         </label>
-        <label className="flex items-center gap-2 pt-6 text-sm text-gray-700">
+        <label className="flex items-start gap-2 pt-6 text-sm">
           <input
             type="checkbox"
+            className="mt-1"
             checked={isDefault}
             onChange={(e) => setIsDefault(e.target.checked)}
           />
-          设为默认
+          <span>
+            设为默认
+            <span className="mt-0.5 block text-xs text-faint">同一类模型只保留一个默认</span>
+          </span>
         </label>
       </div>
+
       <div className="flex items-center gap-3">
         <button
-          className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+          className="btn-primary"
           disabled={saving || !baseUrl.trim() || !model.trim()}
           onClick={save}
         >
           {saving ? "保存中…" : "保存"}
         </button>
-        <button
-          className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
-          onClick={testConnection}
-        >
+        <button className="btn-ghost" onClick={testConnection}>
           测试连接
         </button>
         {testResult && (
-          <span className={`text-sm ${testResult.ok ? "text-green-600" : "text-red-600"}`}>
+          <span className={`text-sm ${testResult.ok ? "text-ok" : "text-seal"}`}>
             {testResult.text}
           </span>
         )}
       </div>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-seal">{error}</p>}
     </div>
   );
 }

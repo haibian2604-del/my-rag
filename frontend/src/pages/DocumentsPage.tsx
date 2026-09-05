@@ -65,10 +65,13 @@ export default function DocumentsPage({ workspace }: { workspace: Workspace }) {
   };
 
   return (
-    <div className="mx-auto max-w-4xl space-y-4">
+    <div className="mx-auto h-full max-w-3xl overflow-y-auto px-4 py-6">
+      <h1 className="font-display text-lg">文档库</h1>
+      <p className="mt-1 text-sm text-faint">上传后的文档会自动解析、切分并向量化，完成后即可在对话中问答。</p>
+
       <div
-        className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-10 text-center transition-colors ${
-          dragOver ? "border-blue-500 bg-blue-50" : "border-gray-300 bg-white"
+        className={`mt-5 flex items-center justify-center gap-3 rounded-lg border border-dashed px-6 py-7 text-center transition-colors ${
+          dragOver ? "border-iblue bg-iblue-soft" : "border-line bg-card"
         }`}
         onDragOver={(e) => {
           e.preventDefault();
@@ -81,8 +84,8 @@ export default function DocumentsPage({ workspace }: { workspace: Workspace }) {
           if (e.dataTransfer.files.length > 0) void handleFiles(e.dataTransfer.files);
         }}
       >
-        <p className="text-sm text-gray-600">拖拽文件到此处，或</p>
-        <label className="mt-2 cursor-pointer rounded bg-blue-600 px-4 py-1.5 text-sm text-white hover:bg-blue-700">
+        <p className="text-sm text-faint">拖入文件，或</p>
+        <label className="btn-ghost cursor-pointer">
           {uploading ? "上传中…" : "选择文件"}
           <input
             type="file"
@@ -96,10 +99,14 @@ export default function DocumentsPage({ workspace }: { workspace: Workspace }) {
             }}
           />
         </label>
-        <p className="mt-2 text-xs text-gray-400">支持 .md / .txt / .pdf / .docx，单个不超过 50MB</p>
       </div>
-      {uploadError && <p className="text-sm text-red-600">{uploadError}</p>}
-      <DocumentStatusList documents={documents} onDelete={remove} onReingest={reingest} busyId={busyId} />
+      <p className="mt-2 text-center text-xs text-faint">支持 .md / .txt / .pdf / .docx，单个不超过 50MB</p>
+
+      {uploadError && <p className="mt-3 text-sm text-seal">{uploadError}</p>}
+
+      <div className="mt-6">
+        <DocumentStatusList documents={documents} onDelete={remove} onReingest={reingest} busyId={busyId} />
+      </div>
     </div>
   );
 }

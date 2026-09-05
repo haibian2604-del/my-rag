@@ -3,9 +3,9 @@ import { ApiError, get, put, type Workspace } from "../api/client";
 import ProviderForm, { type Provider } from "../components/ProviderForm";
 
 const KINDS = [
-  { key: "llm", label: "LLM" },
-  { key: "embedding", label: "嵌入" },
-  { key: "rerank", label: "重排" },
+  { key: "llm", label: "LLM", hint: "用来生成回答的模型。本地 oMLX 一般是 http://localhost:19723/v1（容器内用 http://host.docker.internal:19723/v1）。" },
+  { key: "embedding", label: "嵌入", hint: "把文档和问题转成向量用于检索。中文场景推荐多语言模型（如 bge-m3）。" },
+  { key: "rerank", label: "重排", hint: "可选。对检索结果做二次排序，M3 版本支持。" },
 ] as const;
 
 interface WorkspaceSettings {
@@ -21,6 +21,7 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
   const [appSettings, setAppSettings] = useState<{ auth_enabled: boolean }>({ auth_enabled: false });
   const [password, setPassword] = useState("");
   const [appMsg, setAppMsg] = useState("");
+  const [appMsgError, setAppMsgError] = useState(false);
   const [wsSettings, setWsSettings] = useState<WorkspaceSettings | null>(null);
   const [wsMsg, setWsMsg] = useState("");
 
@@ -43,9 +44,11 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
 
   const saveApp = async (authEnabled: boolean) => {
     setAppMsg("");
+    setAppMsgError(false);
     try {
       if (authEnabled && !password) {
-        setAppMsg("开启认证时必须设置密码");
+        setAppMsg("开启访问密码需要先设置密码");
+        setAppMsgError(true);
         return;
       }
       await put("/api/settings/app", {
@@ -54,9 +57,10 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
       });
       setPassword("");
       await refreshApp();
-      setAppMsg(authEnabled ? "已开启密码认证" : "已关闭密码认证");
+      setAppMsg(authEnabled ? "已开启访问密码" : "已关闭访问密码");
     } catch (e) {
       setAppMsg(e instanceof ApiError ? e.message : "保存失败");
+      setAppMsgError(true);
     }
   };
 
@@ -72,18 +76,21 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
   };
 
   const currentProvider = providers.find((p) => p.kind === tab) ?? null;
+  const activeKind = KINDS.find((k) => k.key === tab)!;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
-      <section className="space-y-3">
-        <div className="flex gap-2">
+    <div className="mx-auto h-full max-w-2xl overflow-y-auto px-4 py-6">
+      <h1 className="font-display text-lg">设置</h1>
+
+      <section className="mt-6">
+        <div className="flex gap-1 border-b border-line pb-3">
           {KINDS.map((k) => (
             <button
               key={k.key}
-              className={`rounded px-3 py-1.5 text-sm ${
+              className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
                 tab === k.key
-                  ? "bg-blue-600 text-white"
-                  : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                  ? "bg-iblue-soft font-medium text-iblue"
+                  : "text-faint hover:text-ink"
               }`}
               onClick={() => setTab(k.key)}
             >
@@ -91,17 +98,95 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
             </button>
           ))}
         </div>
-        <ProviderForm
-          key={`${tab}-${currentProvider?.id ?? "new"}`}
-          kind={tab}
-          provider={currentProvider}
-          onSaved={() => void refreshProviders()}
-        />
+        <p className="mt-3 text-xs leading-5 text-faint">{activeKind.hint}</p>
+        <div className="mt-3">
+          <ProviderForm
+            key={`${tab}-${currentProvider?.id ?? "new"}`}
+            kind={tab}
+            provider={currentProvider}
+            onSaved={() => void refreshProviders()}
+          />
+        </div>
       </section>
 
-      <section className="space-y-3 rounded border border-gray-200 bg-white p-4">
-        <h3 className="text-sm font-semibold text-gray-800">应用设置</h3>
-        <label className="flex items-center gap-2 text-sm text-gray-700">
+      <section className="mt-8 border-t border-line pt-6">
+        <h2 className="font-display text-base">检索参数</h2>
+        <p className="mt-1 text-xs text-faint">控制每次回答时如何从文档中取材，改动只影响当前工作区。</p>
+        {wsSettings && (
+          <>
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="block text-sm">
+                <span className="mb-1 block">每次检索的段落数（1–20）</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  className="input"
+                  value={wsSettings.top_k}
+                  onChange={(e) => setWsSettings({ ...wsSettings, top_k: Number(e.target.value) })}
+                />
+                <span className="mt-1 block text-xs text-faint">取多少段最相关的原文给模型参考</span>
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block">相似度阈值（0–1）</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  className="input"
+                  value={wsSettings.score_threshold}
+                  onChange={(e) =>
+                    setWsSettings({ ...wsSettings, score_threshold: Number(e.target.value) })
+                  }
+                />
+                <span className="mt-1 block text-xs text-faint">低于这个相似度的段落直接丢弃，0 表示不过滤</span>
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block">单次回答的资料上限（500–8000 tokens）</span>
+                <input
+                  type="number"
+                  min={500}
+                  max={8000}
+                  step={100}
+                  className="input"
+                  value={wsSettings.context_max_tokens}
+                  onChange={(e) =>
+                    setWsSettings({ ...wsSettings, context_max_tokens: Number(e.target.value) })
+                  }
+                />
+                <span className="mt-1 block text-xs text-faint">一次回答最多带入多少原文，太大时回答会变慢</span>
+              </label>
+              <label className="flex items-start gap-2 pt-7 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={wsSettings.use_rerank}
+                  onChange={(e) => setWsSettings({ ...wsSettings, use_rerank: e.target.checked })}
+                />
+                <span>
+                  启用重排
+                  <span className="mt-0.5 block text-xs text-faint">对召回结果做二次排序（当前为简化实现）</span>
+                </span>
+              </label>
+            </div>
+            <div className="mt-4 flex items-center gap-3">
+              <button className="btn-primary" onClick={() => void saveWs()}>
+                保存
+              </button>
+              {wsMsg && <span className="text-sm text-faint">{wsMsg}</span>}
+            </div>
+          </>
+        )}
+      </section>
+
+      <section className="mt-8 border-t border-line pt-6">
+        <h2 className="font-display text-base">访问密码</h2>
+        <p className="mt-1 text-xs leading-5 text-faint">
+          默认仅本机可访问、无需密码。要在局域网里用其他设备访问时建议开启；
+          开启前请确保服务端已用环境变量设置强随机的 JWT 与加密密钥。
+        </p>
+        <label className="mt-4 flex items-center gap-2 text-sm">
           <input
             type="checkbox"
             checked={appSettings.auth_enabled}
@@ -110,88 +195,23 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
           启用访问密码
         </label>
         {appSettings.auth_enabled && (
-          <div className="flex items-center gap-2 text-sm">
+          <div className="mt-3 flex items-center gap-2 text-sm">
             <input
               type="password"
-              className="rounded border border-gray-300 px-2 py-1.5"
+              className="input max-w-56"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="新密码"
+              placeholder="设置新密码"
             />
-            <button
-              className="rounded border border-gray-300 px-3 py-1.5 hover:bg-gray-50"
-              onClick={() => void saveApp(true)}
-            >
+            <button className="btn-ghost" onClick={() => void saveApp(true)}>
               更新密码
             </button>
           </div>
         )}
-        {appMsg && <p className="text-sm text-gray-600">{appMsg}</p>}
+        {appMsg && (
+          <p className={`mt-2 text-sm ${appMsgError ? "text-seal" : "text-faint"}`}>{appMsg}</p>
+        )}
       </section>
-
-      {wsSettings && (
-        <section className="space-y-3 rounded border border-gray-200 bg-white p-4">
-          <h3 className="text-sm font-semibold text-gray-800">检索参数</h3>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <label className="block text-sm">
-              <span className="mb-1 block text-gray-600">Top K（1-20）</span>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                className="w-full rounded border border-gray-300 px-2 py-1.5"
-                value={wsSettings.top_k}
-                onChange={(e) => setWsSettings({ ...wsSettings, top_k: Number(e.target.value) })}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block text-gray-600">分数阈值（0-1）</span>
-              <input
-                type="number"
-                min={0}
-                max={1}
-                step={0.05}
-                className="w-full rounded border border-gray-300 px-2 py-1.5"
-                value={wsSettings.score_threshold}
-                onChange={(e) =>
-                  setWsSettings({ ...wsSettings, score_threshold: Number(e.target.value) })
-                }
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block text-gray-600">上下文最大 tokens（500-8000）</span>
-              <input
-                type="number"
-                min={500}
-                max={8000}
-                step={100}
-                className="w-full rounded border border-gray-300 px-2 py-1.5"
-                value={wsSettings.context_max_tokens}
-                onChange={(e) =>
-                  setWsSettings({ ...wsSettings, context_max_tokens: Number(e.target.value) })
-                }
-              />
-            </label>
-            <label className="flex items-center gap-2 pt-6 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={wsSettings.use_rerank}
-                onChange={(e) => setWsSettings({ ...wsSettings, use_rerank: e.target.checked })}
-              />
-              启用重排
-            </label>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
-              onClick={() => void saveWs()}
-            >
-              保存
-            </button>
-            {wsMsg && <span className="text-sm text-gray-600">{wsMsg}</span>}
-          </div>
-        </section>
-      )}
     </div>
   );
 }
