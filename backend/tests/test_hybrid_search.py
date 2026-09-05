@@ -125,6 +125,17 @@ async def test_hybrid_beats_pure_vector(hybrid_seed):
     assert "火山" not in vhits[0]["content"]
 
 
+async def test_hybrid_ignores_score_threshold(hybrid_seed):
+    """hybrid 模式下不应用 score_threshold（RRF 分上限约 0.033，与相似度量纲不同）：
+    阈值远大于 RRF 上限时检索仍返回结果。"""
+    ws_id = hybrid_seed["ws"].id
+    hits = await search(ws_id, QUERY, top_k=5, hybrid=True, score_threshold=0.5)
+    assert hits, "hybrid 模式下 score_threshold 不应过滤 RRF 分"
+    # 与 threshold=0 的结果完全一致：hybrid 下 threshold 不生效
+    hits_no_threshold = await search(ws_id, QUERY, top_k=5, hybrid=True, score_threshold=0.0)
+    assert [h["chunk_id"] for h in hits] == [h["chunk_id"] for h in hits_no_threshold]
+
+
 async def test_hybrid_fallback_on_fts_error(hybrid_seed, monkeypatch):
     ws_id = hybrid_seed["ws"].id
     import app.services.retrieval.search as search_mod

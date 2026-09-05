@@ -13,6 +13,7 @@ interface WorkspaceSettings {
   top_k: number;
   score_threshold: number;
   use_rerank: boolean;
+  use_hybrid: boolean;
   context_max_tokens: number;
 }
 
@@ -147,7 +148,9 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
                     setWsSettings({ ...wsSettings, score_threshold: Number(e.target.value) })
                   }
                 />
-                <span className="mt-1 block text-xs text-faint">低于这个相似度的段落直接丢弃，0 表示不过滤</span>
+                <span className="mt-1 block text-xs text-faint">
+                  低于这个相似度的段落直接丢弃，0 表示不过滤（仅关闭混合检索时生效）
+                </span>
               </label>
               <label className="block text-sm">
                 <span className="mb-1 block">单次回答的资料上限（500–8000 tokens）</span>
@@ -174,6 +177,18 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
                 <span>
                   启用重排
                   <span className="mt-0.5 block text-xs text-faint">对召回结果做二次排序（当前为简化实现）</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 pt-7 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={wsSettings.use_hybrid}
+                  onChange={(e) => setWsSettings({ ...wsSettings, use_hybrid: e.target.checked })}
+                />
+                <span>
+                  启用混合检索
+                  <span className="mt-0.5 block text-xs text-faint">向量召回与全文检索融合排序；关闭后仅用向量召回</span>
                 </span>
               </label>
             </div>

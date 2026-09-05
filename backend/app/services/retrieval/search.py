@@ -3,6 +3,8 @@
 Hit 结构：{"chunk_id","document_id","filename","content","heading_path","page_no","score"}
 纯向量：score = 1 - 余弦距离（即余弦相似度），按相似度降序返回。
 混合检索：score = RRF 融合分 Σ 1/(60 + rank_i)，按融合分降序返回。
+score_threshold 只在纯向量模式下生效（语义为余弦相似度门槛）；hybrid 模式
+下的 RRF 分与相似度不同量纲，不应用该阈值。
 """
 import logging
 
@@ -179,9 +181,13 @@ async def search(
                 fts_ids = []
             hits = _rrf_fuse(vector_hits, fts_ids, top_k)
 
+    # threshold 语义 = 向量余弦相似度门槛，只对纯向量路生效。
+    # hybrid 模式下 score 是 RRF 融合分（Σ 1/(60+rank)，两路融合上限约 0.033），
+    # 与 0–1 的相似度量纲完全不同——若在此套用 threshold 会导致任何 >0.033 的
+    # 阈值在默认 hybrid 模式下静默返回空，故 hybrid 时不应用 threshold。
     out = []
     for h in hits:
-        if h["score"] < score_threshold:  # hybrid 时作用于 rrf_score，纯向量时作用于相似度
+        if not hybrid and h["score"] < score_threshold:
             continue
         out.append(h)
     return out
