@@ -7,10 +7,10 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
 from app.core.auth import require_auth
-from app.core.config import settings
 from app.core.db import SessionLocal
 from app.jobs.runner import run_ingestion_sync
 from app.models.entities import Document, Workspace
+from app.services.ingestion.pipeline import doc_file_path
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -30,11 +30,6 @@ class DocumentOut(BaseModel):
     checksum: str
     status: str
     error: str | None
-
-
-def _doc_path(doc_id: int, filename: str) -> FsPath:
-    safe_name = FsPath(filename).name  # 防路径穿越
-    return settings.storage_dir / "documents" / f"{doc_id}_{safe_name}"
 
 
 def _get_ws(s, ws_id: int) -> Workspace:
@@ -63,7 +58,7 @@ async def upload_document(ws_id: int, background_tasks: BackgroundTasks,
                        mime=mime, size=len(content), checksum=checksum, status="pending")
         s.add(doc)
         s.flush()  # 先拿 id 再落盘
-        path = _doc_path(doc.id, filename)
+        path = doc_file_path(doc)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(content)
@@ -100,7 +95,7 @@ def delete_document(doc_id: int):
         doc = s.get(Document, doc_id)
         if not doc:
             raise HTTPException(status_code=404, detail="document 不存在")
-        path = _doc_path(doc.id, doc.filename)
+        path = doc_file_path(doc)
         s.delete(doc)
         s.commit()
     try:
@@ -119,7 +114,5 @@ def reingest_document(doc_id: int, background_tasks: BackgroundTasks):
         doc.status = "pending"
         doc.error = None
         s.commit()
-        doc_id_val = doc.id
-    background_tasks.add_task(run_ingestion_sync, doc_id_val)
-    with SessionLocal() as s:
-        return s.get(Document, doc_id_val)
+    background_tasks.add_task(run_ingestion_sync, doc.id)
+    return doc

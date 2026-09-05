@@ -10,6 +10,7 @@ from app.models.entities import Conversation, Message, ProviderConfig, Workspace
 from app.providers.llm.fake import FakeLLM
 from app.providers.llm.openai_compat import OpenAICompatLLM
 from app.services.ingestion.pipeline import get_default_provider
+from app.services.providers_service import decrypt_api_key
 from app.services.retrieval.context import build_context
 from app.services.retrieval.search import retrieve
 
@@ -28,16 +29,11 @@ def build_llm_provider(cfg: ProviderConfig):
     if cfg.provider == "fake":
         params = cfg.params or {}
         return FakeLLM(reply=params.get("reply", "这是一个测试回答。"))
-    api_key = None
-    if cfg.api_key_encrypted:
-        from app.core.security import decrypt_secret
-
-        api_key = decrypt_secret(cfg.api_key_encrypted)
     params = cfg.params or {}
     return OpenAICompatLLM(
         base_url=cfg.base_url,
         model=cfg.model,
-        api_key=api_key,
+        api_key=decrypt_api_key(cfg),
         timeout=params.get("timeout", 120.0),
     )
 

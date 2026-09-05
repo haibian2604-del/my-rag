@@ -21,7 +21,6 @@ def login(body: LoginIn, response: Response):
     response.set_cookie(
         COOKIE_NAME, create_token(), httponly=True, path="/", samesite="lax"
     )
-    return None
 
 
 @router.post("/auth/logout", status_code=204)

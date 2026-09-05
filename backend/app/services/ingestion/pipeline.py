@@ -2,8 +2,8 @@
 
 状态：pending → parsing → embedding → ready；任一步异常置 failed 并写 error。
 """
-from pathlib import Path
 import logging
+from pathlib import Path
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -15,6 +15,7 @@ from app.providers.embedding.fake import FakeEmbedding
 from app.providers.embedding.openai_compat import OpenAICompatEmbedding
 from app.services.ingestion.chunking import split_blocks
 from app.services.ingestion.parsing import parse_file
+from app.services.providers_service import decrypt_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -38,16 +39,11 @@ def build_embedding_provider(cfg: ProviderConfig):
     if cfg.provider == "fake":
         params = cfg.params or {}
         return FakeEmbedding(dim=params.get("dim", 4))
-    api_key = None
-    if cfg.api_key_encrypted:
-        from app.core.security import decrypt_secret
-
-        api_key = decrypt_secret(cfg.api_key_encrypted)
     params = cfg.params or {}
     return OpenAICompatEmbedding(
         base_url=cfg.base_url,
         model=cfg.model,
-        api_key=api_key,
+        api_key=decrypt_api_key(cfg),
         batch_size=params.get("batch_size", 16),
         timeout=params.get("timeout", 120.0),
     )

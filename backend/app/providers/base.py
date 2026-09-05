@@ -1,4 +1,5 @@
-from typing import AsyncIterator, Protocol
+from collections.abc import AsyncIterator
+from typing import Protocol
 
 
 class LLMProvider(Protocol):

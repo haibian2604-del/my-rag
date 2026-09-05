@@ -6,8 +6,8 @@ from sqlalchemy import select
 from app.core.auth import require_auth
 from app.core.db import SessionLocal
 from app.models.entities import Conversation, Message, Workspace
-from app.services.chat.service import ask_stream, get_llm_or_raise
-from app.services.chat.service import LLMNotConfiguredError
+from app.services.chat.service import ask_stream
+from app.services.ingestion.pipeline import get_default_provider
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -72,8 +72,8 @@ def ask(conv_id: int, body: AskIn):
     with SessionLocal() as s:
         _get_conv(s, conv_id)
         try:
-            get_llm_or_raise(s)
-        except LLMNotConfiguredError:
+            get_default_provider(s, "llm")
+        except RuntimeError:
             raise HTTPException(status_code=400, detail="未配置 LLM 模型") from None
     return StreamingResponse(
         ask_stream(conv_id, body.question),

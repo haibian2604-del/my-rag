@@ -1,4 +1,3 @@
-import time
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -13,7 +12,6 @@ from app.services.providers_service import (
     clear_other_defaults,
     get_provider_or_404,
     mask_api_key,
-    provider_api_key,
 )
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -72,14 +70,13 @@ def list_providers():
         rows = s.execute(
             select(ProviderConfig).order_by(ProviderConfig.id)
         ).scalars().all()
-        return [
-            ProviderOut(
-                id=p.id, kind=p.kind, provider=p.provider, base_url=p.base_url,
-                model=p.model, api_key=mask_api_key(p), is_default=p.is_default,
-                params=p.params,
-            )
-            for p in rows
-        ]
+        return [_provider_out(p) for p in rows]
+
+
+def _provider_out(p: ProviderConfig) -> ProviderOut:
+    out = ProviderOut.model_validate(p)
+    out.api_key = mask_api_key(p)
+    return out
 
 
 @router.post("/settings/providers", response_model=ProviderOut, status_code=201)
@@ -95,11 +92,7 @@ def create_provider(body: ProviderIn):
             clear_other_defaults(s, body.kind)
         s.add(p)
         s.commit()
-        return ProviderOut(
-            id=p.id, kind=p.kind, provider=p.provider, base_url=p.base_url,
-            model=p.model, api_key=mask_api_key(p), is_default=p.is_default,
-            params=p.params,
-        )
+        return _provider_out(p)
 
 
 @router.put("/settings/providers/{provider_id}", response_model=ProviderOut)
@@ -117,11 +110,7 @@ def update_provider(provider_id: int, body: ProviderIn):
         if body.is_default:
             clear_other_defaults(s, body.kind, exclude_id=p.id)
         s.commit()
-        return ProviderOut(
-            id=p.id, kind=p.kind, provider=p.provider, base_url=p.base_url,
-            model=p.model, api_key=mask_api_key(p), is_default=p.is_default,
-            params=p.params,
-        )
+        return _provider_out(p)
 
 
 @router.delete("/settings/providers/{provider_id}", status_code=204)

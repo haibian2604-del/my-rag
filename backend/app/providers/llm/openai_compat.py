@@ -1,5 +1,5 @@
 import json
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import httpx
 
@@ -14,16 +14,16 @@ class OpenAICompatLLM:
     async def stream_chat(self, messages: list[dict], **params) -> AsyncIterator[str]:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         payload = {"model": self.model, "messages": messages, "stream": True, **params}
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            async with client.stream("POST", f"{self.base_url}/chat/completions",
-                                     json=payload, headers=headers) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    data = line[6:]
-                    if data.strip() == "[DONE]":
-                        return
-                    delta = json.loads(data)["choices"][0].get("delta", {})
-                    if content := delta.get("content"):
-                        yield content
+        async with httpx.AsyncClient(timeout=self.timeout) as client, client.stream(
+            "POST", f"{self.base_url}/chat/completions", json=payload, headers=headers
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                data = line[6:]
+                if data.strip() == "[DONE]":
+                    return
+                delta = json.loads(data)["choices"][0].get("delta", {})
+                if content := delta.get("content"):
+                    yield content

@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.security import decrypt_secret, encrypt_secret
+from app.core.security import decrypt_secret
 from app.models.entities import ProviderConfig
 
 
@@ -22,11 +22,12 @@ def mask_api_key(provider: ProviderConfig) -> str | None:
     return "***" if provider.api_key_encrypted else None
 
 
-def provider_api_key(provider: ProviderConfig) -> str | None:
-    if not provider.api_key_encrypted:
+def decrypt_api_key(cfg: ProviderConfig) -> str | None:
+    """解出 provider 的 api_key，无 key 或密文解不开时返回 None。"""
+    if not cfg.api_key_encrypted:
         return None
     try:
-        return decrypt_secret(provider.api_key_encrypted)
+        return decrypt_secret(cfg.api_key_encrypted)
     except Exception:  # noqa: BLE001 — 密钥轮换后旧密文解不开，按无 key 处理
         return None
 

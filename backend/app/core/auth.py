@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 import jwt
@@ -47,7 +47,7 @@ def verify_password(password: str, password_hash: str | None) -> bool:
 def create_token() -> str:
     payload = {
         "sub": "owner",
-        "exp": datetime.now(timezone.utc) + timedelta(days=TOKEN_TTL_DAYS),
+        "exp": datetime.now(UTC) + timedelta(days=TOKEN_TTL_DAYS),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
