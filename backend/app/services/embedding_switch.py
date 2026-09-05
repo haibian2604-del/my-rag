@@ -33,7 +33,8 @@ def write_state(s: Session, **fields) -> None:
 async def reembed_all(target_model: str) -> None:
     with SessionLocal() as s:
         state = read_state(s)
-        if state.get("state") == "running":
+        # switch 端点启动前已把自身目标写为 running；仅拒绝其他目标的并发任务
+        if state.get("state") == "running" and state.get("target_model") != target_model:
             raise RuntimeError("已有重嵌任务在运行")
         emb_cfg = get_default_provider(s, "embedding")
         cfg = deepcopy(emb_cfg)
