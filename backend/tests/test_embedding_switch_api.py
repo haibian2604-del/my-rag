@@ -144,7 +144,8 @@ def test_activate_switches_and_records_previous(client, env):
 
 
 def test_activate_no_provider_404(client):
-    # 自建向量 + 清掉所有默认 embedding provider → 404 未配置嵌入模型
+    # conftest 已在每条测试前临时摘除默认 provider 标记（不删行）：
+    # 自建一条向量通过向量校验后，因无默认 embedding provider → 404
     with SessionLocal() as s:
         ws = Workspace(name=f"ws-embsw-nop-{uuid4().hex[:8]}")
         s.add(ws)
@@ -160,8 +161,6 @@ def test_activate_no_provider_404(client):
         emb = ChunkEmbedding(chunk_id=chunk.id, workspace_id=ws.id,
                              model_name="any-model", dim=4, embedding=[0.1] * 4)
         s.add(emb)
-        s.execute(delete(ProviderConfig).where(
-            ProviderConfig.kind == "embedding", ProviderConfig.is_default.is_(True)))
         s.commit()
         ws_id, emb_id = ws.id, emb.id
     try:
