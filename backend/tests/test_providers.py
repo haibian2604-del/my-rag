@@ -1,4 +1,3 @@
-import pytest
 
 from app.providers.embedding.fake import FakeEmbedding
 from app.providers.embedding.openai_compat import OpenAICompatEmbedding

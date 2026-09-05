@@ -1,3 +1,5 @@
+from itertools import pairwise
+
 from app.services.ingestion.chunking import split_blocks
 
 
@@ -62,7 +64,7 @@ def test_tail_overlap_semantics():
     )
     assert len(chunks) >= 2
     assert chunks[0]["text"][-20:] == chunks[1]["text"][:20]  # 后块开头复制前块尾部
-    for prev, nxt in zip(chunks, chunks[1:]):
+    for prev, nxt in pairwise(chunks):
         assert nxt["text"][:20] == prev["text"][-20:]
 
 
@@ -75,7 +77,7 @@ def test_no_punct_long_sentence_not_repeated():
     assert len(chunks) >= 2
     assert all(c["token_count"] <= 500 + 50 for c in chunks)
     # 窗口硬切：不允许出现互为重复的整句大块
-    assert len(set(c["text"] for c in chunks)) == len(chunks)
+    assert len({c["text"] for c in chunks}) == len(chunks)
     # 覆盖原文：末块应包含原文结尾，首块为原文开头
     assert chunks[0]["text"].startswith("无标点超长内容")
     assert text.endswith(chunks[-1]["text"][-20:])

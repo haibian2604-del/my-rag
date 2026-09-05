@@ -1,5 +1,6 @@
 """会话与流式问答测试：SSE 事件序列 / 消息落库 / 历史 / LLM 未配置 400。"""
 import asyncio
+from typing import ClassVar
 from uuid import uuid4
 
 import pytest
@@ -24,7 +25,7 @@ QUERY = "退款政策几天可以退款"
 class RecordingFakeLLM:
     """记录收到的 messages 的 fake LLM，用于断言 P1（问题不重复）。"""
 
-    instances = []
+    instances: ClassVar[list] = []
 
     def __init__(self, reply: str = "回答。"):
         self.reply = reply

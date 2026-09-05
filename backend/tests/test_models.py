@@ -2,8 +2,8 @@ import uuid
 
 from sqlalchemy import text
 
-from app.core.db import engine, SessionLocal
-from app.models.entities import Workspace, Document
+from app.core.db import SessionLocal, engine
+from app.models.entities import Document, Workspace
 
 
 def test_tables_exist_and_relationships():

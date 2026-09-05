@@ -46,20 +46,35 @@ cd frontend && pnpm install && pnpm dev
 
 打开 http://localhost:5173 ，在「设置」页配置模型服务地址与模型名，测试连接通过后上传文档即可问答。
 
-### 测试
+### 测试与评测
 
 ```bash
-cd backend && uv run pytest -v      # 62 个用例（含真实库集成测试）
+cd backend && uv run pytest -v      # 67 个用例（含真实库集成测试）
 cd frontend && pnpm vitest run
+
+# 中文检索评测（20 条查询，输出 recall@5 与延迟；需已配置嵌入模型）
+cd backend && uv run python -m tests.evaluation.run_eval
 ```
 
-## 部署
+## 部署（Docker Compose）
 
-容器化部署（docker compose）尚未加入，属下一阶段工作；当前按上面的本地开发方式运行。接入局域网前请在服务端用环境变量覆盖 `RAG_JWT_SECRET` 与 `RAG_ENCRYPTION_KEY`。
+```bash
+docker compose up -d --build
+```
+
+应用在 `http://localhost:9000`，首次启动自动执行数据库迁移。模型服务在宿主机运行时（如 oMLX 的 `http://localhost:8000/v1`），在设置页把地址写作 `http://host.docker.internal:8000/v1`。
+
+暴露到局域网前请覆盖密钥环境变量：
+
+```bash
+RAG_JWT_SECRET=$(openssl rand -hex 32) \
+RAG_ENCRYPTION_KEY=$(openssl rand -hex 32) \
+docker compose up -d --build
+```
 
 ## Roadmap
 
-- [ ] Docker Compose 一键部署（含 SPA 托管）
-- [ ] 中文检索评测集与 recall@5 脚本
+- [x] Docker Compose 一键部署（含 SPA 托管）
+- [x] 中文检索评测集与 recall@5 脚本
 - [ ] M2：网页 URL 抓取入库、嵌入模型切换向导（并行重嵌 / 回滚）
 - [ ] M3：重排接入默认链路、混合检索

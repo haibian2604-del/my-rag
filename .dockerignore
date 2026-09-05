@@ -1,0 +1,12 @@
+.git
+.venv
+node_modules
+dist
+storage
+.superpowers
+docs
+backend/.env
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+.DS_Store

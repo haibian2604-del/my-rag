@@ -1,5 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,6 +46,11 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     def health() -> dict:
         return {"status": "ok"}
+
+    # SPA 托管（容器内有前端构建产物时生效）
+    from app.api.spa import mount_spa
+
+    mount_spa(app, Path(__file__).parent / "static")
 
     return app
 
