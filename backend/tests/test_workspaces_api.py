@@ -110,12 +110,9 @@ def test_delete_last_workspace_409(client):
     """
     with SessionLocal() as s:
         remaining = s.query(Workspace).count()
+    if remaining > 0:
+        pytest.skip("共享库存在其他工作区，无法验证最后一个工作区规则")
     ws = _create(_unique())
-    if remaining > 0:
-        pytest.skip("共享库存在其他工作区，无法验证最后一个工作区规则")
-    if remaining > 0:
-        _cleanup(ws.id)
-        pytest.skip("共享库存在其他工作区，无法验证最后一个工作区规则")
     try:
         resp = client.delete(f"/api/workspaces/{ws.id}")
         assert resp.status_code == 409
