@@ -132,6 +132,9 @@ export default function ChatPage({
   };
 
   const removeConversation = async (id: number) => {
+    const conv = conversations.find((c) => c.id === id);
+    const label = conv?.title && conv.title !== "新对话" ? `「${conv.title}」` : "该会话";
+    if (!window.confirm(`删除会话${label}？其中的问答记录将一并删除，不可恢复。`)) return;
     try {
       await del(`/api/conversations/${id}`);
       await refreshConversations();
