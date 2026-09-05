@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ApiError, get, put, type Workspace } from "../api/client";
+import EmbeddingSwitcher from "../components/EmbeddingSwitcher";
 import ProviderForm, { type Provider } from "../components/ProviderForm";
 
 const KINDS = [
@@ -106,6 +107,11 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
             provider={currentProvider}
             onSaved={() => void refreshProviders()}
           />
+          {tab === "embedding" && (
+            <div className="mt-4">
+              <EmbeddingSwitcher />
+            </div>
+          )}
         </div>
       </section>
 
