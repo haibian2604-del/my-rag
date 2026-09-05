@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 
 from app.core.db import SessionLocal
 from app.models.entities import Workspace
@@ -49,6 +50,30 @@ def test_create_workspace_duplicate_409(client):
         assert resp.status_code == 409
     finally:
         _cleanup(ws.id)
+
+
+def test_create_workspace_blank_name_422(client):
+    assert client.post("/api/workspaces", json={"name": "  "}).status_code == 422
+
+
+def test_create_workspace_too_long_name_422(client):
+    assert client.post("/api/workspaces", json={"name": "x" * 101}).status_code == 422
+
+
+def test_create_workspace_name_stripped(client):
+    name = _unique()
+    try:
+        resp = client.post("/api/workspaces", json={"name": f"  {name}  "})
+        assert resp.status_code == 201
+        assert resp.json()["name"] == name
+    finally:
+        with SessionLocal() as s:
+            row = s.execute(
+                select(Workspace).where(Workspace.name == name)
+            ).scalar_one_or_none()
+            if row:
+                s.delete(row)
+                s.commit()
 
 
 def test_rename_workspace_200(client):

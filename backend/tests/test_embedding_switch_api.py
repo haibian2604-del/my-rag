@@ -143,6 +143,20 @@ def test_activate_switches_and_records_previous(client, env):
     assert client.get("/api/settings/embedding/switch").json()["current_model"] == "new-model"
 
 
+def test_get_switch_state_returns_previous_model(client, env):
+    client.post("/api/settings/embedding/activate", json={"model": "new-model"})
+    resp = client.get("/api/settings/embedding/switch")
+    assert resp.status_code == 200
+    assert resp.json()["previous_model"] == "old-model"
+    # 未切换过时无 previous_model 字段（清掉 state 行后回归 idle）
+    with SessionLocal() as s:
+        row = s.get(AppConfig, "embedding_switch")
+        if row:
+            s.delete(row)
+        s.commit()
+    assert "previous_model" not in client.get("/api/settings/embedding/switch").json()
+
+
 def test_activate_no_provider_404(client):
     # conftest 已在每条测试前临时摘除默认 provider 标记（不删行）：
     # 自建一条向量通过向量校验后，因无默认 embedding provider → 404

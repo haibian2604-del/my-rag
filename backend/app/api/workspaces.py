@@ -16,9 +16,23 @@ class WorkspaceOut(BaseModel):
     description: str
 
 
+def _check_workspace_name(v: str) -> str:
+    v = v.strip()
+    if not v:
+        raise ValueError("工作区名称不能为空")
+    if len(v) > 100:
+        raise ValueError("工作区名称过长（≤100）")
+    return v
+
+
 class WorkspaceIn(BaseModel):
     name: str
     description: str = ""
+
+    @field_validator("name")
+    @classmethod
+    def _name_valid(cls, v: str) -> str:
+        return _check_workspace_name(v)
 
 
 class WorkspaceUpdate(BaseModel):
@@ -28,12 +42,7 @@ class WorkspaceUpdate(BaseModel):
     @field_validator("name")
     @classmethod
     def _name_valid(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise ValueError("工作区名称不能为空")
-        if len(v) > 100:
-            raise ValueError("工作区名称过长（≤100）")
-        return v
+        return _check_workspace_name(v)
 
 
 @router.get("/workspaces", response_model=list[WorkspaceOut])

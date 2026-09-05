@@ -54,7 +54,7 @@ def get_switch_state():
         "state": state.get("state", "idle"),
         "current_model": current_model,
     }
-    for key in ("target_model", "total", "done", "error"):
+    for key in ("target_model", "total", "done", "error", "previous_model"):
         if state.get(key) is not None:
             out[key] = state[key]
     return out

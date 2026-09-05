@@ -7,6 +7,7 @@ interface SwitchState {
   total?: number;
   done?: number;
   error?: string;
+  previous_model?: string;
   current_model: string | null;
 }
 
@@ -98,6 +99,13 @@ export default function EmbeddingSwitcher() {
   const switched = done && s?.current_model != null && s.current_model === s.target_model;
   const canSwitch = done && !switched && !!s?.target_model;
   const pct = running && s?.total && s.total > 0 ? Math.round(((s.done ?? 0) / s.total) * 100) : 0;
+
+  // 切换后用 previous_model 预填回滚输入框（用户可改写）
+  useEffect(() => {
+    if (s?.state === "done" && s.previous_model) {
+      setRollbackModel((cur) => (cur ? cur : s.previous_model!));
+    }
+  }, [s?.state, s?.previous_model]);
 
   return (
     <div className="panel space-y-4 p-4">
