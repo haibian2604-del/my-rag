@@ -122,7 +122,6 @@ def main() -> None:
                         help="对比模式：同一工作区分别跑 hybrid 与纯向量检索")
     args = parser.parse_args()
 
-
     with SessionLocal() as s:
         cfg = s.execute(
             select(ProviderConfig).where(

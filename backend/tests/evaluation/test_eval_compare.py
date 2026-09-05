@@ -5,17 +5,22 @@ hash 向量），使 FTS 路对特定关键词稳定命中。断言 evaluate_rec
 合法，且 hybrid 对关键词查询的召回不差于纯向量。
 """
 import asyncio
-import time
 from uuid import uuid4
 
 import pytest
 
 from app.core.db import SessionLocal
-from app.models.entities import Chunk, ChunkEmbedding, Document, ProviderConfig, Workspace
+from app.models.entities import ProviderConfig, Workspace
 from app.providers.embedding.fake import FakeEmbedding
-
 from tests.evaluation.run_eval import evaluate_recall, print_compare_report
-from tests.test_hybrid_search import OTHER_TEXTS, QUERY, TARGET_TEXT, _make_chunk, _make_doc, _make_embedding
+from tests.test_hybrid_search import (
+    OTHER_TEXTS,
+    QUERY,
+    TARGET_TEXT,
+    _make_chunk,
+    _make_doc,
+    _make_embedding,
+)
 
 QUERIES = [{"query": QUERY, "expect_keywords": ["火山"]}]
 

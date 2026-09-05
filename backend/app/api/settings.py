@@ -64,6 +64,11 @@ def _auth_headers(api_key: str | None) -> dict:
     return {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
 
+def _raise_if_error(resp: httpx.Response) -> None:
+    if resp.status_code >= 300:
+        raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:ERR_TRUNCATE]}")
+
+
 @router.get("/settings/providers", response_model=list[ProviderOut])
 def list_providers():
     with SessionLocal() as s:
@@ -133,8 +138,7 @@ def test_provider(body: ProviderTestIn):
                           "max_tokens": 8},
                     headers=_auth_headers(body.api_key),
                 )
-                if resp.status_code >= 300:
-                    raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:ERR_TRUNCATE]}")
+                _raise_if_error(resp)
                 data = resp.json()
                 if not data.get("choices"):
                     raise RuntimeError("响应缺少 choices")
@@ -145,8 +149,7 @@ def test_provider(body: ProviderTestIn):
                     json={"model": body.model, "input": ["测试"]},
                     headers=_auth_headers(body.api_key),
                 )
-                if resp.status_code >= 300:
-                    raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:ERR_TRUNCATE]}")
+                _raise_if_error(resp)
                 data = resp.json()
                 embedding = data["data"][0]["embedding"]
                 return {"ok": True, "dim": len(embedding)}
@@ -157,8 +160,7 @@ def test_provider(body: ProviderTestIn):
                           "documents": ["测试文档"], "top_n": 1},
                     headers=_auth_headers(body.api_key),
                 )
-                if resp.status_code >= 300:
-                    raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:ERR_TRUNCATE]}")
+                _raise_if_error(resp)
                 if not resp.json().get("results"):
                     raise RuntimeError("响应缺少 results")
                 return {"ok": True}

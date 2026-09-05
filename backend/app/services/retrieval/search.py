@@ -14,6 +14,7 @@ from app.core.db import SessionLocal
 from app.providers.rerank.omlx import OMLXRerank
 from app.services.ingestion.pipeline import build_embedding_provider, get_default_provider
 from app.services.ingestion.tokenize import tokenize_for_fts
+from app.services.providers_service import decrypt_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,6 @@ Hit = dict
 def build_rerank_provider(cfg):
     """根据 rerank provider 配置构造重排器（模式同 build_embedding_provider）。"""
     if cfg.provider == "openai_compat":
-        from app.services.providers_service import decrypt_api_key
         return OMLXRerank(base_url=cfg.base_url, model=cfg.model,
                           api_key=decrypt_api_key(cfg))
     raise RuntimeError(f"不支持的 rerank provider：{cfg.provider}")
@@ -185,12 +185,7 @@ async def search(
     # hybrid 模式下 score 是 RRF 融合分（Σ 1/(60+rank)，两路融合上限约 0.033），
     # 与 0–1 的相似度量纲完全不同——若在此套用 threshold 会导致任何 >0.033 的
     # 阈值在默认 hybrid 模式下静默返回空，故 hybrid 时不应用 threshold。
-    out = []
-    for h in hits:
-        if not hybrid and h["score"] < score_threshold:
-            continue
-        out.append(h)
-    return out
+    return [h for h in hits if hybrid or h["score"] >= score_threshold]
 
 
 async def retrieve(
