@@ -9,6 +9,8 @@ export default function DocumentsPage({ workspace }: { workspace: Workspace }) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [url, setUrl] = useState("");
+  const [fetching, setFetching] = useState(false);
 
   const refresh = async () => {
     try {
@@ -37,6 +39,22 @@ export default function DocumentsPage({ workspace }: { workspace: Workspace }) {
       setUploadError(e instanceof ApiError ? e.message : "上传失败");
     } finally {
       setUploading(false);
+    }
+  };
+
+  const fetchUrl = async () => {
+    const trimmed = url.trim();
+    if (!trimmed || fetching) return;
+    setUploadError("");
+    setFetching(true);
+    try {
+      await post(`/api/workspaces/${workspace.id}/documents/url`, { url: trimmed });
+      setUrl("");
+      await refresh();
+    } catch (e) {
+      setUploadError(e instanceof ApiError ? e.message : "抓取失败");
+    } finally {
+      setFetching(false);
     }
   };
 
@@ -99,6 +117,22 @@ export default function DocumentsPage({ workspace }: { workspace: Workspace }) {
             }}
           />
         </label>
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          type="text"
+          className="input flex-1"
+          placeholder="https://example.com/article"
+          value={url}
+          disabled={fetching}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void fetchUrl();
+          }}
+        />
+        <button type="button" className="btn-primary" disabled={fetching || !url.trim()} onClick={() => void fetchUrl()}>
+          {fetching ? "抓取中…" : "抓取网页"}
+        </button>
       </div>
       <p className="mt-2 text-center text-xs text-faint">支持 .md / .txt / .pdf / .docx，单个不超过 50MB</p>
 
