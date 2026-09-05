@@ -4,7 +4,8 @@ from sqlalchemy import func, select
 
 from app.core.auth import require_auth
 from app.core.db import SessionLocal
-from app.models.entities import Workspace
+from app.models.entities import Document, Workspace
+from app.services.ingestion.pipeline import doc_file_path
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -84,5 +85,15 @@ def delete_workspace(ws_id: int):
         total = s.execute(select(func.count()).select_from(Workspace)).scalar_one()
         if total <= 1:
             raise HTTPException(status_code=409, detail="至少保留一个工作区")
+        # 先收集磁盘文件路径（复用 pipeline.doc_file_path），commit 后逐个回收
+        doc_rows = s.execute(
+            select(Document).where(Document.workspace_id == ws_id)
+        ).scalars().all()
+        paths = [doc_file_path(d) for d in doc_rows]
         s.delete(ws)  # 关联文档/会话等靠 FK ondelete=CASCADE 级联删除
         s.commit()
+    for path in paths:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass  # 磁盘回收失败不阻塞响应

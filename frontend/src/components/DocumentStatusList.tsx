@@ -54,8 +54,18 @@ export default function DocumentStatusList({
     );
   }
 
+  const readyCount = documents.filter((d) => d.status === "ready").length;
+  const processingCount = documents.filter(
+    (d) => d.status === "pending" || d.status === "parsing" || d.status === "embedding",
+  ).length;
+  const failedCount = documents.filter((d) => d.status === "failed").length;
+
   return (
-    <ul className="divide-y divide-line rounded-lg border border-line bg-card">
+    <div>
+      <p className="px-1 pb-2 text-xs text-faint">
+        {readyCount} 篇可问答 · {processingCount} 处理中 · {failedCount} 失败
+      </p>
+      <ul className="divide-y divide-line rounded-lg border border-line bg-card">
       {documents.map((doc) => {
         const meta = STATUS_META[doc.status] ?? STATUS_META.pending;
         return (
@@ -112,6 +122,7 @@ export default function DocumentStatusList({
           </li>
         );
       })}
-    </ul>
+      </ul>
+    </div>
   );
 }
