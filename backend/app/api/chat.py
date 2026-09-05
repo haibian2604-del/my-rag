@@ -1,6 +1,8 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 
 from app.core.auth import require_auth
@@ -16,6 +18,19 @@ class ConversationOut(BaseModel):
     id: int
     workspace_id: int
     title: str
+    created_at: datetime | None = None
+
+
+class ConversationUpdateIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+    @field_validator("title")
+    @classmethod
+    def strip_title(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("标题不能为空")
+        return v
 
 
 class MessageOut(BaseModel):
@@ -45,6 +60,28 @@ def create_conversation(ws_id: int):
             raise HTTPException(status_code=404, detail="workspace 不存在")
         conv = Conversation(workspace_id=ws_id)
         s.add(conv)
+        s.commit()
+        s.refresh(conv)
+        return conv
+
+
+@router.get("/workspaces/{ws_id}/conversations", response_model=list[ConversationOut])
+def list_conversations(ws_id: int):
+    with SessionLocal() as s:
+        if not s.get(Workspace, ws_id):
+            raise HTTPException(status_code=404, detail="workspace 不存在")
+        rows = s.execute(
+            select(Conversation).where(Conversation.workspace_id == ws_id)
+            .order_by(Conversation.id.desc())
+        ).scalars().all()
+        return rows
+
+
+@router.put("/conversations/{conv_id}", response_model=ConversationOut)
+def update_conversation(conv_id: int, body: ConversationUpdateIn):
+    with SessionLocal() as s:
+        conv = _get_conv(s, conv_id)
+        conv.title = body.title
         s.commit()
         s.refresh(conv)
         return conv

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiError, del, get, post, type Workspace } from "../api/client";
+import { ApiError, del, get, post, put, type Workspace } from "../api/client";
 import { parseSSE, type Citation, type SSEEvent } from "../api/sse";
 import MessageBubble, { type ChatMessage } from "../components/MessageBubble";
 
@@ -7,6 +7,7 @@ interface Conversation {
   id: number;
   workspace_id: number;
   title: string;
+  created_at?: string;
 }
 
 const STARTERS = [
@@ -27,24 +28,13 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const convListKey = `conversations.ws.${workspace.id}`;
+  const refreshConversations = () =>
+    get<Conversation[]>(`/api/workspaces/${workspace.id}/conversations`)
+      .then(setConversations)
+      .catch((e) => setError(e instanceof ApiError ? e.message : "加载会话列表失败"));
 
-  const loadConversations = (): Conversation[] => {
-    try {
-      return JSON.parse(localStorage.getItem(convListKey) ?? "[]") as Conversation[];
-    } catch {
-      return [];
-    }
-  };
-
-  const saveConversations = (list: Conversation[]) => {
-    localStorage.setItem(convListKey, JSON.stringify(list));
-    setConversations(list);
-  };
-
-  // 后端无会话列表端点，会话侧栏用 localStorage 维护
   useEffect(() => {
-    setConversations(loadConversations());
+    void refreshConversations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.id]);
 
@@ -87,7 +77,7 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
   const newConversation = async () => {
     try {
       const conv = await post<Conversation>(`/api/workspaces/${workspace.id}/conversations`);
-      saveConversations([conv, ...conversations]);
+      await refreshConversations();
       setActiveId(conv.id);
       setMessages([]);
       setError("");
@@ -100,7 +90,7 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
   const removeConversation = async (id: number) => {
     try {
       await del(`/api/conversations/${id}`);
-      saveConversations(conversations.filter((c) => c.id !== id));
+      await refreshConversations();
       if (activeId === id) {
         setActiveId(null);
         setMessages([]);
@@ -122,8 +112,13 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
     abortRef.current = new AbortController();
     const conv = conversations.find((c) => c.id === activeId);
     if (conv && (!conv.title || conv.title === "新对话")) {
-      saveConversations(
-        conversations.map((c) => (c.id === activeId ? { ...c, title: question.slice(0, 20) } : c)),
+      // 标题乐观更新 + 持久化到后端
+      const newTitle = question.slice(0, 20);
+      setConversations(
+        conversations.map((c) => (c.id === activeId ? { ...c, title: newTitle } : c)),
+      );
+      void put<Conversation>(`/api/conversations/${activeId}`, { title: newTitle }).catch(
+        () => undefined,
       );
     }
     setMessages((prev) => [
@@ -175,6 +170,7 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
         copy[copy.length - 1] = { ...copy[copy.length - 1], citations };
         return copy;
       });
+      void refreshConversations();
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") {
         // 用户主动停止：保留已生成的部分
