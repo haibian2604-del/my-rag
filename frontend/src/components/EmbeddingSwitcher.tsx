@@ -62,12 +62,12 @@ export default function EmbeddingSwitcher() {
     }
   };
 
-  const activate = async (model: string, isRollback: boolean) => {
+  const activate = async (model: string) => {
     setError("");
     setBusy(true);
     try {
       await post("/api/settings/embedding/activate", { model: model.trim() });
-      if (isRollback) setRollbackModel("");
+      setRollbackModel("");
       await refresh();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "切换失败");
@@ -160,7 +160,7 @@ export default function EmbeddingSwitcher() {
           <button
             className="btn-primary"
             disabled={busy}
-            onClick={() => void activate(s!.target_model!, false)}
+            onClick={() => void activate(s!.target_model!)}
           >
             切换到 {s!.target_model}
           </button>
@@ -183,7 +183,7 @@ export default function EmbeddingSwitcher() {
                 type="button"
                 className="btn-ghost shrink-0"
                 disabled={busy || !rollbackModel.trim()}
-                onClick={() => void activate(rollbackModel, true)}
+                onClick={() => void activate(rollbackModel)}
               >
                 回滚
               </button>

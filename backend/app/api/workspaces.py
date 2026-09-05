@@ -35,16 +35,6 @@ class WorkspaceIn(BaseModel):
         return _check_workspace_name(v)
 
 
-class WorkspaceUpdate(BaseModel):
-    name: str
-    description: str = ""
-
-    @field_validator("name")
-    @classmethod
-    def _name_valid(cls, v: str) -> str:
-        return _check_workspace_name(v)
-
-
 @router.get("/workspaces", response_model=list[WorkspaceOut])
 def list_workspaces():
     with SessionLocal() as s:
@@ -68,7 +58,7 @@ def create_workspace(body: WorkspaceIn):
 
 
 @router.put("/workspaces/{ws_id}", response_model=WorkspaceOut)
-def update_workspace(ws_id: int, body: WorkspaceUpdate):
+def update_workspace(ws_id: int, body: WorkspaceIn):
     with SessionLocal() as s:
         ws = s.get(Workspace, ws_id)
         if not ws:

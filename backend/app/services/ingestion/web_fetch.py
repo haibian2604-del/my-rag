@@ -13,6 +13,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup
 
+from app.core.db import SessionLocal
 from app.models.entities import Document
 from app.services.ingestion.pipeline import doc_file_path
 
@@ -30,8 +31,8 @@ class UrlFetchError(Exception):
     """校验/抓取失败，消息可直接作为 400 detail（中文）。"""
 
 
-def validate_url(url: str) -> str:
-    """校验 URL 安全性，通过则返回原 URL，否则抛 UrlFetchError。"""
+def validate_url(url: str) -> None:
+    """校验 URL 安全性，不通过则抛 UrlFetchError。"""
     try:
         parsed = urlparse(url)
     except ValueError as e:
@@ -48,8 +49,6 @@ def validate_url(url: str) -> str:
     for ip in _resolve_host(parsed.hostname, port):
         if any(getattr(ip, attr) for attr in _BLOCKED_REASONS):
             raise UrlFetchError(f"拒绝访问内网/保留地址: {ip}")
-
-    return url
 
 
 def _resolve_host(hostname: str, port: int | None) -> list:
@@ -100,24 +99,24 @@ def extract_markdown(html: str) -> tuple[str, str]:
     return title, "\n\n".join(paras)
 
 
-def _parse_page(url: str, body: bytes, content_type: str) -> str:
+def _parse_page(body: bytes, content_type: str) -> str:
+    text = body.decode("utf-8", errors="replace")
     if "html" in (content_type or "").lower() or not content_type:
-        title, text = extract_markdown(body.decode("utf-8", errors="replace"))
-        if not text:
+        title, body_text = extract_markdown(text)
+        if not body_text:
             raise UrlFetchError("页面未提取到正文内容")
-        md = f"# {title}\n\n{text}" if title else text
-    else:
-        # 非 HTML：按纯文本处理
-        text = body.decode("utf-8", errors="replace").strip()
-        if not text:
-            raise UrlFetchError("页面未提取到正文内容")
-        md = text
-    return md
+        return f"# {title}\n\n{body_text}" if title else body_text
+    # 非 HTML：按纯文本处理
+    text = text.strip()
+    if not text:
+        raise UrlFetchError("页面未提取到正文内容")
+    return text
 
 
 async def fetch_url_to_doc(ws_id: int, url: str) -> Document:
     """校验并抓取 URL，提取正文落盘为 markdown 文档（pending，待后台摄取）。"""
-    current = validate_url(url)
+    validate_url(url)
+    current = url
     async with httpx.AsyncClient(follow_redirects=False, timeout=TIMEOUT) as client:
         for _ in range(MAX_REDIRECTS):
             try:
@@ -129,7 +128,8 @@ async def fetch_url_to_doc(ws_id: int, url: str) -> Document:
                 await resp.aclose()
                 if not location:
                     raise UrlFetchError(f"重定向缺少 Location: {resp.status_code}")
-                current = validate_url(urljoin(current, location))
+                current = urljoin(current, location)
+                validate_url(current)
                 continue
             if resp.status_code >= 400:
                 await resp.aclose()
@@ -153,14 +153,12 @@ async def fetch_url_to_doc(ws_id: int, url: str) -> Document:
             await resp.aclose()
     body = b"".join(chunks)
 
-    md = _parse_page(current, body, resp.headers.get("content-type", ""))
+    md = _parse_page(body, resp.headers.get("content-type", ""))
     md_bytes = md.encode("utf-8")
 
     doc = Document(workspace_id=ws_id, filename=_sanitize_filename(current),
                    source_type="url", mime="text/markdown", size=len(md_bytes),
                    checksum=hashlib.sha256(md_bytes).hexdigest(), status="pending")
-    from app.core.db import SessionLocal
-
     with SessionLocal() as s:
         s.add(doc)
         s.flush()

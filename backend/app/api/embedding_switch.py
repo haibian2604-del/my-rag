@@ -82,10 +82,3 @@ def activate_embedding(body: ActivateIn):
     with SessionLocal() as s:
         _activate_model(s, body.model)
     return {"current_model": body.model}
-
-
-@router.post("/settings/embedding/rollback")
-def rollback_embedding(body: ActivateIn):
-    with SessionLocal() as s:
-        _activate_model(s, body.model)
-    return {"current_model": body.model}

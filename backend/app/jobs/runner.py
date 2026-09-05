@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.core.db import SessionLocal
 from app.models.entities import Document
-from app.services.embedding_switch import reembed_all
+from app.services.embedding_switch import read_state, reembed_all, write_state
 from app.services.ingestion.pipeline import ingest_document
 
 logger = logging.getLogger(__name__)
@@ -21,8 +21,6 @@ def run_reembed_sync(target_model: str) -> None:
 
 def _recover_embedding_switch() -> None:
     """进程重启会中断进程内 BackgroundTasks 里的重嵌任务，恢复状态机。"""
-    from app.services.embedding_switch import read_state, write_state
-
     with SessionLocal() as s:
         state = read_state(s)
         if state.get("state") == "running":

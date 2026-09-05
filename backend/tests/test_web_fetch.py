@@ -84,12 +84,12 @@ def test_validate_url_rejects(url, fake_dns):
 
 def test_validate_url_accepts_public(fake_dns):
     fake_dns()
-    assert validate_url("https://example.com/page") == "https://example.com/page"
+    assert validate_url("https://example.com/page") is None
 
 
 def test_validate_url_accepts_http(fake_dns):
     fake_dns()
-    assert validate_url("http://example.com/") == "http://example.com/"
+    assert validate_url("http://example.com/") is None
 
 
 def test_validate_url_rejects_bad_scheme():

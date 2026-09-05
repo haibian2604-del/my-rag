@@ -192,9 +192,10 @@ def test_activate_no_provider_404(client):
 
 
 def test_rollback_back_to_old_model(client, env):
+    # 回滚与切换共用 activate 端点（语义别名已删）
     assert client.post("/api/settings/embedding/activate",
                        json={"model": "new-model"}).status_code == 200
-    resp = client.post("/api/settings/embedding/rollback",
+    resp = client.post("/api/settings/embedding/activate",
                        json={"model": "old-model"})
     assert resp.status_code == 200
     assert resp.json() == {"current_model": "old-model"}
