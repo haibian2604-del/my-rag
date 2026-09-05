@@ -152,12 +152,26 @@ def test_test_embedding_ok_dim(client, httpx_mock):
     assert resp.json() == {"ok": True, "dim": 4}
 
 
-def test_test_rerank_501(client):
+def test_test_rerank_ok(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST", url="http://mock/rerank",
+        json={"results": [{"index": 0, "relevance_score": 0.9}]},
+    )
+    resp = client.post("/api/settings/providers/test", json={
+        "kind": "rerank", "base_url": "http://mock", "model": "jina-reranker-v3-mlx",
+    })
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+
+
+def test_test_rerank_bad_response_400(client, httpx_mock):
+    httpx_mock.add_response(
+        method="POST", url="http://mock/rerank", json={"unexpected": True},
+    )
     resp = client.post("/api/settings/providers/test", json={
         "kind": "rerank", "base_url": "http://mock", "model": "r1",
     })
-    assert resp.status_code == 501
-    assert resp.json()["detail"] == "rerank 测试将在 M3 支持"
+    assert resp.status_code == 400
 
 
 def test_test_failure_400_truncated(client, httpx_mock):

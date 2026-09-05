@@ -123,8 +123,6 @@ def delete_provider(provider_id: int):
 
 @router.post("/settings/providers/test")
 def test_provider(body: ProviderTestIn):
-    if body.kind == "rerank":
-        raise HTTPException(status_code=501, detail="rerank 测试将在 M3 支持")
     try:
         with httpx.Client(timeout=TEST_TIMEOUT) as client:
             if body.kind == "llm":
@@ -152,6 +150,18 @@ def test_provider(body: ProviderTestIn):
                 data = resp.json()
                 embedding = data["data"][0]["embedding"]
                 return {"ok": True, "dim": len(embedding)}
+            if body.kind == "rerank":
+                resp = client.post(
+                    f"{body.base_url}/rerank",
+                    json={"model": body.model, "query": "测试",
+                          "documents": ["测试文档"], "top_n": 1},
+                    headers=_auth_headers(body.api_key),
+                )
+                if resp.status_code >= 300:
+                    raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:ERR_TRUNCATE]}")
+                if not resp.json().get("results"):
+                    raise RuntimeError("响应缺少 results")
+                return {"ok": True}
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
