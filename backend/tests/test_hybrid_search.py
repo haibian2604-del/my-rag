@@ -198,3 +198,19 @@ def test_ingest_writes_fts(tmp_path, hybrid_seed):
         assert nulls == 0
         s.delete(d)
         s.commit()
+
+
+def test_fts_fetch_fields_failure_degrades(monkeypatch):
+    """FTS 独有命中的字段补查异常 → 丢弃这些 chunk，只留向量路结果（不失败）。"""
+    import app.services.retrieval.search as search_mod
+
+    def _boom(_s, _ids):
+        raise RuntimeError("db exploded")
+
+    monkeypatch.setattr(search_mod, "_fetch_chunk_fields", _boom)
+    vector_hits = [{"chunk_id": 1, "document_id": 1, "filename": "a.md",
+                    "content": "向量路命中", "heading_path": "", "page_no": None,
+                    "score": 0.9}]
+    fused = search_mod._rrf_fuse(vector_hits, [999], top_k=5)  # 999 仅 FTS 路命中
+    assert [h["chunk_id"] for h in fused] == [1]  # 补查失败的 FTS-only chunk 被丢弃
+    assert fused[0]["score"] > 0

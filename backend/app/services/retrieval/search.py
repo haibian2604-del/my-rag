@@ -68,13 +68,14 @@ def _fts_recall(s, workspace_id: int, tokens: str, limit: int) -> list[int]:
     rows = s.execute(
         text(
             """
-            SELECT c.id AS chunk_id
+            SELECT c.id AS chunk_id,
+                   ts_rank(c.fts, websearch_to_tsquery('simple', :tokens)) AS rank_score
             FROM chunks c
             JOIN documents d ON d.id = c.document_id
             WHERE c.workspace_id = :ws_id
               AND d.status = 'ready'
               AND c.fts @@ websearch_to_tsquery('simple', :tokens)
-            ORDER BY ts_rank(c.fts, websearch_to_tsquery('simple', :tokens)) DESC
+            ORDER BY rank_score DESC
             LIMIT :limit
             """
         ),
@@ -91,9 +92,14 @@ def _rrf_fuse(vector_hits: list[Hit], fts_ids: list[int], top_k: int) -> list[Hi
     fts_only = [cid for cid in fts_ids if cid not in rrf]
     for rank, cid in enumerate(fts_ids, 1):
         rrf[cid] = rrf.get(cid, 0.0) + 1.0 / (RRF_K + rank)
-    # 仅 FTS 路命中的 chunk 补取字段
-    with SessionLocal() as s:
-        fields = _fetch_chunk_fields(s, fts_only)
+    # 仅 FTS 路命中的 chunk 补取字段：补查失败只丢弃这些 chunk，不影响向量路结果
+    try:
+        with SessionLocal() as s:
+            fields = _fetch_chunk_fields(s, fts_only)
+    except Exception:
+        logger.warning("FTS 命中 chunk 字段补取失败，丢弃 FTS 独有命中", exc_info=True)
+        fields = {}
+        fts_only = []
     hits: dict[int, Hit] = {h["chunk_id"]: h for h in vector_hits}
     for cid in fts_only:
         f = fields.get(cid)
