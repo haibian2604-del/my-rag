@@ -6,17 +6,12 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 
 def mount_spa(app: FastAPI, static_dir: Path) -> None:
     index = static_dir / "index.html"
     if not index.exists():
         return
-
-    assets = static_dir / "assets"
-    if assets.is_dir():
-        app.mount("/assets", StaticFiles(directory=assets), name="assets")
 
     static_root = static_dir.resolve()
 
