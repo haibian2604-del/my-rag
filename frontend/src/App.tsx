@@ -4,6 +4,7 @@ import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginGate from "./components/LoginGate";
+import WorkspaceSwitcher from "./components/WorkspaceSwitcher";
 
 type Page = "chat" | "documents" | "settings";
 
@@ -92,9 +93,7 @@ export default function App() {
         </div>
         <nav className="flex flex-col gap-0.5 px-2">{navButtons()}</nav>
         {workspace && (
-          <div className="mt-auto truncate border-t border-line px-4 py-3 text-xs text-faint">
-            {workspace.name}
-          </div>
+          <WorkspaceSwitcher workspace={workspace} onSwitch={setWorkspace} />
         )}
       </aside>
 

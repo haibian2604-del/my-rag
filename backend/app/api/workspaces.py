@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy import select
+from pydantic import BaseModel, field_validator
+from sqlalchemy import func, select
 
 from app.core.auth import require_auth
 from app.core.db import SessionLocal
@@ -18,6 +18,21 @@ class WorkspaceOut(BaseModel):
 class WorkspaceIn(BaseModel):
     name: str
     description: str = ""
+
+
+class WorkspaceUpdate(BaseModel):
+    name: str
+    description: str = ""
+
+    @field_validator("name")
+    @classmethod
+    def _name_valid(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("工作区名称不能为空")
+        if len(v) > 100:
+            raise ValueError("工作区名称过长（≤100）")
+        return v
 
 
 @router.get("/workspaces", response_model=list[WorkspaceOut])
@@ -40,3 +55,34 @@ def create_workspace(body: WorkspaceIn):
         s.commit()
         s.refresh(ws)
         return ws
+
+
+@router.put("/workspaces/{ws_id}", response_model=WorkspaceOut)
+def update_workspace(ws_id: int, body: WorkspaceUpdate):
+    with SessionLocal() as s:
+        ws = s.get(Workspace, ws_id)
+        if not ws:
+            raise HTTPException(status_code=404, detail="工作区不存在")
+        dup = s.execute(
+            select(Workspace).where(Workspace.name == body.name, Workspace.id != ws_id)
+        ).scalar_one_or_none()
+        if dup:
+            raise HTTPException(status_code=409, detail="同名工作区已存在")
+        ws.name = body.name
+        ws.description = body.description
+        s.commit()
+        s.refresh(ws)
+        return ws
+
+
+@router.delete("/workspaces/{ws_id}", status_code=204)
+def delete_workspace(ws_id: int):
+    with SessionLocal() as s:
+        ws = s.get(Workspace, ws_id)
+        if not ws:
+            raise HTTPException(status_code=404, detail="工作区不存在")
+        total = s.execute(select(func.count()).select_from(Workspace)).scalar_one()
+        if total <= 1:
+            raise HTTPException(status_code=409, detail="至少保留一个工作区")
+        s.delete(ws)  # 关联文档/会话等靠 FK ondelete=CASCADE 级联删除
+        s.commit()
