@@ -198,6 +198,7 @@ RETRIEVAL_DEFAULTS = {
     "top_k": 5,
     "score_threshold": 0.0,
     "use_rerank": True,
+    "use_hybrid": True,
     "context_max_tokens": 3000,
 }
 
@@ -206,6 +207,7 @@ class WorkspaceSettingsIn(BaseModel):
     top_k: int = Field(ge=1, le=20)
     score_threshold: float = Field(ge=0.0, le=1.0)
     use_rerank: bool = True
+    use_hybrid: bool = True
     context_max_tokens: int = Field(ge=500, le=8000)
 
 

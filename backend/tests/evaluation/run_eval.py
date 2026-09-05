@@ -75,6 +75,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="中文检索评测：recall@k 与延迟")
     parser.add_argument("--top-k", type=int, default=5, help="每个查询检索的 chunk 数（默认 5）")
     parser.add_argument("--keep", action="store_true", help="保留评测工作区与文档")
+    parser.add_argument("--no-hybrid", action="store_true", help="关闭混合检索（仅向量召回）")
     args = parser.parse_args()
 
     with SessionLocal() as s:
@@ -103,7 +104,8 @@ def main() -> None:
         latencies = []
         for q in queries:
             t0 = time.perf_counter()
-            found = asyncio.run(search(ws_id, q["query"], top_k=args.top_k))
+            found = asyncio.run(search(ws_id, q["query"], top_k=args.top_k,
+                                      hybrid=not args.no_hybrid))
             dt = (time.perf_counter() - t0) * 1000
             latencies.append(dt)
             corpus = "\n".join(h["content"] for h in found)

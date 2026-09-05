@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -44,6 +44,8 @@ class Chunk(Base):
     heading_path: Mapped[str] = mapped_column(Text, default="")
     page_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # 全文检索向量（tsvector），由 to_tsvector('simple', jieba 分词) 写入；旧数据可为 NULL
+    fts: Mapped[TSVECTOR | None] = mapped_column(TSVECTOR, nullable=True)
 
 
 class ChunkEmbedding(Base):

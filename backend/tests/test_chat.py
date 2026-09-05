@@ -220,9 +220,9 @@ def test_ask_reads_workspace_params(client, seed_data, monkeypatch):
     recorded = {}
 
     async def fake_retrieve(workspace_id, query, use_rerank=None, top_k=5, top_n=3,
-                            score_threshold=0.0):
+                            score_threshold=0.0, hybrid=True):
         recorded.update(workspace_id=workspace_id, query=query, use_rerank=use_rerank,
-                        top_k=top_k, score_threshold=score_threshold)
+                        top_k=top_k, score_threshold=score_threshold, hybrid=hybrid)
         return []
 
     monkeypatch.setattr(chat_service, "retrieve", fake_retrieve)

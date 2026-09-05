@@ -75,9 +75,11 @@ async def ask_stream(conversation_id: int, question: str) -> AsyncIterator[str]:
             score_threshold = float(ws_params.get("score_threshold", 0.0))
             _rerank = ws_params.get("use_rerank")
             use_rerank = None if _rerank is None else bool(_rerank)
+            use_hybrid = bool(ws_params.get("use_hybrid", True))
             max_tokens = int(ws_params.get("context_max_tokens", 3000))
             hits = await retrieve(conv.workspace_id, question, use_rerank=use_rerank,
-                                  top_k=top_k, score_threshold=score_threshold)
+                                  top_k=top_k, score_threshold=score_threshold,
+                                  hybrid=use_hybrid)
             ctx, citations = build_context(hits, max_tokens=max_tokens)
             # 先取历史（不含本问），再落库 user 消息，避免历史里混入刚写入的问题
             history = load_history(s, conversation_id)

@@ -238,16 +238,18 @@ def test_workspace_settings_defaults_and_put(client):
     assert resp.status_code == 200
     assert resp.json() == {
         "top_k": 5, "score_threshold": 0.0,
-        "use_rerank": True, "context_max_tokens": 3000,
+        "use_rerank": True, "use_hybrid": True,
+        "context_max_tokens": 3000,
     }
     resp = client.put(f"/api/workspaces/{ws.id}/settings", json={
         "top_k": 10, "score_threshold": 0.5,
-        "use_rerank": False, "context_max_tokens": 4000,
+        "use_rerank": False, "use_hybrid": False, "context_max_tokens": 4000,
     })
     assert resp.status_code == 200
     assert client.get(f"/api/workspaces/{ws.id}/settings").json() == {
         "top_k": 10, "score_threshold": 0.5,
-        "use_rerank": False, "context_max_tokens": 4000,
+        "use_rerank": False, "use_hybrid": False,
+        "context_max_tokens": 4000,
     }
 
 

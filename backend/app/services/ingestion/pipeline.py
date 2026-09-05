@@ -5,7 +5,7 @@
 import logging
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -15,6 +15,7 @@ from app.providers.embedding.fake import FakeEmbedding
 from app.providers.embedding.openai_compat import OpenAICompatEmbedding
 from app.services.ingestion.chunking import split_blocks
 from app.services.ingestion.parsing import parse_file
+from app.services.ingestion.tokenize import tokenize_for_fts
 from app.services.providers_service import decrypt_api_key
 
 logger = logging.getLogger(__name__)
@@ -71,7 +72,8 @@ async def ingest_document(document_id: int) -> None:
             s.add_all([
                 Chunk(document_id=document_id, workspace_id=doc.workspace_id,
                       ordinal=i, content=c["text"], token_count=c.get("token_count", 0),
-                      heading_path=c.get("heading_path", ""), page_no=c.get("page_no"))
+                      heading_path=c.get("heading_path", ""), page_no=c.get("page_no"),
+                      fts=func.to_tsvector("simple", tokenize_for_fts(c["text"])))
                 for i, c in enumerate(chunks)
             ])
             s.commit()
