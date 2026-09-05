@@ -27,6 +27,8 @@ function BrandMark({ className = "" }: { className?: string }) {
 export default function App() {
   const [page, setPage] = useState<Page>("chat");
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  // 激活会话 ID 提升到 App：站内切页返回时恢复离开的会话
+  const [activeConvId, setActiveConvId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [needsAuth, setNeedsAuth] = useState(false);
@@ -116,7 +118,13 @@ export default function App() {
           )}
           {!loading && !error && workspace && (
             <>
-              {page === "chat" && <ChatPage workspace={workspace} />}
+              {page === "chat" && (
+                <ChatPage
+                  workspace={workspace}
+                  activeId={activeConvId}
+                  onActiveChange={setActiveConvId}
+                />
+              )}
               {page === "documents" && <DocumentsPage workspace={workspace} />}
               {page === "settings" && <SettingsPage workspace={workspace} />}
             </>

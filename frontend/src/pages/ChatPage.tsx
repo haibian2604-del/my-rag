@@ -16,9 +16,16 @@ const STARTERS = [
   "资料里提到了哪些数据或步骤？",
 ];
 
-export default function ChatPage({ workspace }: { workspace: Workspace }) {
+export default function ChatPage({
+  workspace,
+  activeId,
+  onActiveChange,
+}: {
+  workspace: Workspace;
+  activeId: number | null;
+  onActiveChange: (id: number | null) => void;
+}) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeId, setActiveId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [asking, setAsking] = useState(false);
@@ -27,16 +34,67 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const bootstrappedWs = useRef<number | null>(null);
 
   const refreshConversations = () =>
     get<Conversation[]>(`/api/workspaces/${workspace.id}/conversations`)
       .then(setConversations)
       .catch((e) => setError(e instanceof ApiError ? e.message : "加载会话列表失败"));
 
+  const loadMessages = async (id: number) => {
+    const rows = await get<
+      { id: number; role: string; content: string; citations: Citation[] | null }[]
+    >(`/api/conversations/${id}/messages`);
+    setMessages(
+      rows.map((m) => ({
+        id: m.id,
+        role: m.role === "user" ? "user" : "assistant",
+        content: m.content,
+        citations: m.citations ?? undefined,
+      })),
+    );
+  };
+
+  // 挂载/切换工作区引导：有激活会话则恢复，否则复用未提问的空会话或自动新建
   useEffect(() => {
-    void refreshConversations();
+    if (bootstrappedWs.current === workspace.id) return;
+    bootstrappedWs.current = workspace.id;
+    setMessages([]);
+    (async () => {
+      try {
+        const list = await get<Conversation[]>(
+          `/api/workspaces/${workspace.id}/conversations`,
+        );
+        setConversations(list);
+        if (activeId != null) {
+          try {
+            await loadMessages(activeId); // 从其他页面返回：恢复离开的会话
+            return;
+          } catch {
+            onActiveChange(null); // 会话已不存在，走新建
+          }
+        }
+        const reuse = list.find((c) => !c.title || c.title === "新对话");
+        if (reuse) {
+          onActiveChange(reuse.id);
+          await loadMessages(reuse.id);
+        } else {
+          const conv = await post<Conversation>(
+            `/api/workspaces/${workspace.id}/conversations`,
+          );
+          setConversations([conv, ...list]);
+          onActiveChange(conv.id);
+        }
+      } catch (e) {
+        setError(e instanceof ApiError ? e.message : "初始化会话失败");
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.id]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   // 空状态引导：显示可问答的文档数
   useEffect(() => {
@@ -50,25 +108,11 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
       .catch(() => undefined);
   }, [workspace.id, messages.length]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
   const openConversation = async (id: number) => {
-    setActiveId(id);
+    onActiveChange(id);
     setError("");
     try {
-      const rows = await get<
-        { id: number; role: string; content: string; citations: Citation[] | null }[]
-      >(`/api/conversations/${id}/messages`);
-      setMessages(
-        rows.map((m) => ({
-          id: m.id,
-          role: m.role === "user" ? "user" : "assistant",
-          content: m.content,
-          citations: m.citations ?? undefined,
-        })),
-      );
+      await loadMessages(id);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "加载会话失败");
     }
@@ -78,7 +122,7 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
     try {
       const conv = await post<Conversation>(`/api/workspaces/${workspace.id}/conversations`);
       await refreshConversations();
-      setActiveId(conv.id);
+      onActiveChange(conv.id);
       setMessages([]);
       setError("");
       taRef.current?.focus();
@@ -92,7 +136,7 @@ export default function ChatPage({ workspace }: { workspace: Workspace }) {
       await del(`/api/conversations/${id}`);
       await refreshConversations();
       if (activeId === id) {
-        setActiveId(null);
+        onActiveChange(null);
         setMessages([]);
       }
     } catch (e) {
