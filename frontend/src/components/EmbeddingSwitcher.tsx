@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ApiError, get, post } from "../api/client";
 
 interface SwitchState {
@@ -17,8 +17,6 @@ export default function EmbeddingSwitcher() {
   const [rollbackModel, setRollbackModel] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const refresh = useCallback(async (): Promise<SwitchState | null> => {
     try {
       const data = await get<SwitchState>("/api/settings/embedding/switch");
@@ -29,47 +27,37 @@ export default function EmbeddingSwitcher() {
     }
   }, []);
 
+  // 唯一轮询链：挂载时拉取一次；state 变为 running 后恢复 1.5s 轮询
   useEffect(() => {
     let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const tick = async () => {
       const data = await refresh();
       if (stopped) return;
       if (data?.state === "running") {
-        timer.current = setTimeout(tick, 1500);
+        timer = setTimeout(tick, 1500);
       }
     };
     void tick();
     return () => {
       stopped = true;
-      if (timer.current) clearTimeout(timer.current);
+      if (timer) clearTimeout(timer);
     };
-  }, [refresh]);
+  }, [refresh, state?.state]);
 
   const startSwitch = async () => {
+    const target = targetModel.trim();
+    if (!target) return;
     setError("");
     setBusy(true);
     try {
-      await post("/api/settings/embedding/switch", { target_model: targetModel.trim() });
+      await post("/api/settings/embedding/switch", { target_model: target });
       setTargetModel("");
-      await refresh();
-      // 立即进入轮询
-      timer.current = setTimeout(async () => {
-        const data = await refresh();
-        if (data?.state === "running") {
-          timer.current = setTimeout(() => void tickAgain(), 1500);
-        }
-      }, 1500);
+      await refresh(); // 置为 running，由上方 effect 恢复轮询
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "启动重嵌失败");
     } finally {
       setBusy(false);
-    }
-  };
-
-  const tickAgain = async () => {
-    const data = await refresh();
-    if (data?.state === "running") {
-      timer.current = setTimeout(tickAgain, 1500);
     }
   };
 
@@ -89,12 +77,13 @@ export default function EmbeddingSwitcher() {
 
   const retry = async () => {
     // 重试即用原目标模型再次发起
+    const target = state?.target_model?.trim();
+    if (!target) return;
     setError("");
     setBusy(true);
     try {
-      await post("/api/settings/embedding/switch", { target_model: state?.target_model ?? "" });
-      await refresh();
-      timer.current = setTimeout(() => void tickAgain(), 1500);
+      await post("/api/settings/embedding/switch", { target_model: target });
+      await refresh(); // 置为 running，由上方 effect 恢复轮询
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "重试失败");
     } finally {
