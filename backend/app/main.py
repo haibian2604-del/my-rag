@@ -58,3 +58,9 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+if __name__ == "__main__":
+    # 本地开发入口：uv run python -m app.main （默认端口 8001，避免与 oMLX 的 8000 冲突）
+    import uvicorn
+
+    uvicorn.run(app, host="127.0.0.1", port=8001)
