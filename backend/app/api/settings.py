@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
-from app.core.auth import get_auth_config, require_auth, set_auth_config
+from app.core.auth import require_auth
 from app.core.db import SessionLocal
 from app.core.security import encrypt_secret
 from app.models.entities import ProviderConfig, Workspace
@@ -48,11 +48,6 @@ class ProviderTestIn(BaseModel):
     base_url: str
     model: str
     api_key: str | None = None
-
-
-class AppSettingsIn(BaseModel):
-    auth_enabled: bool
-    password: str | None = None
 
 
 def _err_detail(exc: Exception) -> str:
@@ -185,23 +180,6 @@ def discover_models(
             return {"models": models}
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=_err_detail(exc)) from None
-
-
-@router.get("/settings/app")
-def get_app_settings():
-    with SessionLocal() as s:
-        cfg = get_auth_config(s)
-    return {"auth_enabled": cfg["enabled"]}
-
-
-@router.put("/settings/app")
-def update_app_settings(body: AppSettingsIn):
-    if body.auth_enabled and not body.password:
-        raise HTTPException(status_code=422, detail="开启认证时必须设置密码")
-    with SessionLocal() as s:
-        set_auth_config(s, enabled=body.auth_enabled,
-                        password=body.password if body.auth_enabled else None)
-    return {"auth_enabled": body.auth_enabled}
 
 
 # ---------- workspace 检索参数 ----------

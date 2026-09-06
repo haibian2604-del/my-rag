@@ -4,7 +4,6 @@ from typing import ClassVar
 from uuid import uuid4
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.core.db import SessionLocal
@@ -35,13 +34,6 @@ class RecordingFakeLLM:
     async def stream_chat(self, messages: list[dict], **params):
         self.seen_messages = messages
         yield self.reply
-
-
-@pytest.fixture
-def client() -> TestClient:
-    from app.main import create_app
-
-    return TestClient(create_app())
 
 
 @pytest.fixture

@@ -20,18 +20,16 @@ interface WorkspaceSettings {
 export default function SettingsPage({ workspace }: { workspace: Workspace }) {
   const [tab, setTab] = useState<(typeof KINDS)[number]["key"]>("llm");
   const [providers, setProviders] = useState<Provider[]>([]);
-  const [appSettings, setAppSettings] = useState<{ auth_enabled: boolean }>({ auth_enabled: false });
-  const [password, setPassword] = useState("");
-  const [appMsg, setAppMsg] = useState("");
-  const [appMsgError, setAppMsgError] = useState(false);
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [pwMsg, setPwMsg] = useState("");
+  const [pwMsgError, setPwMsgError] = useState(false);
   const [wsSettings, setWsSettings] = useState<WorkspaceSettings | null>(null);
   const [wsMsg, setWsMsg] = useState("");
 
   const refreshProviders = async () => {
     setProviders(await get<Provider[]>("/api/settings/providers"));
-  };
-  const refreshApp = async () => {
-    setAppSettings(await get<{ auth_enabled: boolean }>("/api/settings/app"));
   };
   const refreshWs = async () => {
     setWsSettings(await get<WorkspaceSettings>(`/api/workspaces/${workspace.id}/settings`));
@@ -39,30 +37,30 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
 
   useEffect(() => {
     void refreshProviders().catch(() => undefined);
-    void refreshApp().catch(() => undefined);
     void refreshWs().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.id]);
 
-  const saveApp = async (authEnabled: boolean) => {
-    setAppMsg("");
-    setAppMsgError(false);
+  const savePassword = async () => {
+    setPwMsg("");
+    setPwMsgError(false);
+    if (newPassword !== confirmPassword) {
+      setPwMsg("两次输入的新密码不一致");
+      setPwMsgError(true);
+      return;
+    }
     try {
-      if (authEnabled && !password) {
-        setAppMsg("开启访问密码需要先设置密码");
-        setAppMsgError(true);
-        return;
-      }
-      await put("/api/settings/app", {
-        auth_enabled: authEnabled,
-        password: authEnabled ? password : undefined,
+      await put("/api/auth/password", {
+        old_password: oldPassword,
+        new_password: newPassword,
       });
-      setPassword("");
-      await refreshApp();
-      setAppMsg(authEnabled ? "已开启访问密码" : "已关闭访问密码");
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPwMsg("密码已更新");
     } catch (e) {
-      setAppMsg(e instanceof ApiError ? e.message : "保存失败");
-      setAppMsgError(true);
+      setPwMsg(e instanceof ApiError ? e.message : "保存失败");
+      setPwMsgError(true);
     }
   };
 
@@ -204,35 +202,42 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
       </section>
 
       <section className="min-w-0">
-        <h2 className="font-display text-base">访问密码</h2>
+        <h2 className="font-display text-base">修改密码</h2>
         <p className="mt-1 text-xs leading-5 text-faint">
-          默认仅本机可访问、无需密码。要在局域网里用其他设备访问时建议开启；
-          开启前请确保服务端已用环境变量设置强随机的 JWT 与加密密钥。
+          修改后当前会话仍然有效，其他设备下次请求时需要用新密码重新登录。
         </p>
-        <label className="mt-4 flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={appSettings.auth_enabled}
-            onChange={(e) => void saveApp(e.target.checked)}
-          />
-          启用访问密码
-        </label>
-        {appSettings.auth_enabled && (
-          <div className="mt-3 flex items-center gap-2 text-sm">
-            <input
-              type="password"
-              className="input max-w-56"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="设置新密码"
-            />
-            <button className="btn-ghost" onClick={() => void saveApp(true)}>
-              更新密码
-            </button>
-          </div>
-        )}
-        {appMsg && (
-          <p className={`mt-2 text-sm ${appMsgError ? "text-seal" : "text-faint"}`}>{appMsg}</p>
+        <input
+          type="password"
+          className="input mt-4 max-w-56"
+          value={oldPassword}
+          onChange={(e) => setOldPassword(e.target.value)}
+          placeholder="旧密码"
+        />
+        <input
+          type="password"
+          className="input mt-3 max-w-56"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          placeholder="新密码（至少 6 位）"
+        />
+        <input
+          type="password"
+          className="input mt-3 max-w-56"
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+          placeholder="确认新密码"
+        />
+        <div className="mt-4">
+          <button
+            className="btn-primary"
+            disabled={!oldPassword || !newPassword || !confirmPassword}
+            onClick={() => void savePassword()}
+          >
+            更新密码
+          </button>
+        </div>
+        {pwMsg && (
+          <p className={`mt-2 text-sm ${pwMsgError ? "text-seal" : "text-faint"}`}>{pwMsg}</p>
         )}
       </section>
       </div>
