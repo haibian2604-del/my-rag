@@ -39,9 +39,9 @@ docker exec pgvector psql -U postgres -d rag -c "CREATE EXTENSION IF NOT EXISTS 
 # 2. 后端（默认连 postgresql://postgres:...@localhost:5432/rag，
 #    可用 backend/.env 覆盖：RAG_DATABASE_URL=postgresql+psycopg://...）
 cd backend && uv sync && uv run alembic upgrade head
-uv run uvicorn app.main:app --port 8080
+uv run uvicorn app.main:app --port 8001
 
-# 3. 前端（dev 代理 /api → localhost:8080）
+# 3. 前端（dev 代理 /api → localhost:8001）
 cd frontend && pnpm install && pnpm dev
 ```
 
