@@ -1,18 +1,12 @@
 from uuid import uuid4
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import delete
 
 from app.core.db import SessionLocal
 from app.core.security import decrypt_secret
 from app.main import create_app
 from app.models.entities import AppConfig, ProviderConfig, Workspace
-
-
-@pytest.fixture
-def client() -> TestClient:
-    return TestClient(create_app())
 
 
 @pytest.fixture(autouse=True)
@@ -217,31 +211,6 @@ def test_discover_models_fail_400(client, httpx_mock):
     httpx_mock.add_exception(_httpx.ConnectError("timeout"))
     resp = client.get("/api/settings/models", params={"base_url": "http://mock"})
     assert resp.status_code == 400
-
-
-# ---------- 应用设置 ----------
-
-def test_app_settings_default_and_toggle(client):
-    assert client.get("/api/settings/app").json() == {"auth_enabled": False}
-    # 开启必须带密码
-    assert client.put("/api/settings/app", json={"auth_enabled": True}).status_code == 422
-    resp = client.put("/api/settings/app", json={"auth_enabled": True, "password": "pw1"})
-    assert resp.status_code == 200
-    # 已开启认证，需登录后读取
-    client.post("/api/auth/login", json={"password": "pw1"})
-    assert client.get("/api/settings/app").json() == {"auth_enabled": True}
-    # GET 不回显 hash
-    assert "password" not in client.get("/api/settings/app").text
-    # 关闭清除
-    assert client.put("/api/settings/app", json={"auth_enabled": False}).status_code == 200
-    assert client.get("/api/settings/app").json() == {"auth_enabled": False}
-
-
-def test_app_enabled_blocks_without_login(client):
-    client.put("/api/settings/app", json={"auth_enabled": True, "password": "pw1"})
-    assert client.get("/api/settings/providers").status_code == 401
-    client.post("/api/auth/login", json={"password": "pw1"})
-    assert client.get("/api/settings/providers").status_code == 200
 
 
 # ---------- workspace 检索参数 ----------

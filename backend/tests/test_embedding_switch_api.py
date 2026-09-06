@@ -19,11 +19,6 @@ from app.services.embedding_switch import read_state, write_state
 
 
 @pytest.fixture
-def client() -> TestClient:
-    return TestClient(create_app())
-
-
-@pytest.fixture
 def env():
     """fake embedding provider(old-model 默认) + old/new 向量各若干。"""
     uid = uuid4().hex[:8]

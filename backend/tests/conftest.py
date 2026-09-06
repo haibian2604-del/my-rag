@@ -4,7 +4,10 @@ from sqlalchemy import delete, select
 
 from app.core.db import SessionLocal
 from app.main import create_app
-from app.models.entities import AppConfig, ProviderConfig
+from app.models.entities import AppConfig, ProviderConfig, User
+
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "admin-pw-123"
 
 
 @pytest.fixture(autouse=True)
@@ -44,13 +47,13 @@ def _preserve_default_providers():
 
 @pytest.fixture(autouse=True)
 def _reset_auth_state():
-    """每条测试前重置认证配置。
+    """每条测试前重置认证状态：清空 users 表（注册类测试各自建号）。
 
-    测试直连共享开发库，若上一轮进程中断留下 auth 残留状态，
-    依赖"默认免密"的测试会连锁失败；这里前置清空兜底。
+    测试直连共享开发库，这里前置清空兜底，保证「未注册」初始态。
     （不动 provider_configs，避免清掉真实的模型配置。）
     """
     with SessionLocal() as s:
+        s.execute(delete(User))
         s.execute(delete(AppConfig).where(AppConfig.key == "auth"))
         s.commit()
     yield
@@ -58,4 +61,16 @@ def _reset_auth_state():
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(create_app())
+    """默认已认证的客户端：注册（users 空时）管理员并保持登录态。"""
+    c = TestClient(create_app())
+    if not c.get("/api/auth/status").json()["registered"]:
+        c.post(
+            "/api/auth/register",
+            json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+        )
+    else:
+        c.post(
+            "/api/auth/login",
+            json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+        )
+    return c
