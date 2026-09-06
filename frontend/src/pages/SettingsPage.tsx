@@ -81,7 +81,8 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
   const activeKind = KINDS.find((k) => k.key === tab)!;
 
   return (
-    <div className="mx-auto h-full max-w-5xl overflow-y-auto px-4 py-6">
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-5xl px-4 py-6">
       <h1 className="font-display text-lg">设置</h1>
 
       <section className="mt-6">
@@ -234,6 +235,7 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
           <p className={`mt-2 text-sm ${appMsgError ? "text-seal" : "text-faint"}`}>{appMsg}</p>
         )}
       </section>
+      </div>
       </div>
     </div>
   );

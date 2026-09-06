@@ -83,7 +83,8 @@ export default function DocumentsPage({ workspace }: { workspace: Workspace }) {
   };
 
   return (
-    <div className="mx-auto h-full max-w-3xl overflow-y-auto px-4 py-6">
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-3xl px-4 py-6">
       <h1 className="font-display text-lg">文档库</h1>
       <p className="mt-1 text-sm text-faint">上传后的文档会自动解析、切分并向量化，完成后即可在对话中问答。</p>
 
@@ -140,6 +141,7 @@ export default function DocumentsPage({ workspace }: { workspace: Workspace }) {
 
       <div className="mt-6">
         <DocumentStatusList documents={documents} onDelete={remove} onReingest={reingest} busyId={busyId} />
+      </div>
       </div>
     </div>
   );
