@@ -119,19 +119,32 @@ async def search(
         emb_cfg = get_default_provider(s, "embedding")
         provider = build_embedding_provider(emb_cfg)
         (qvec,) = await provider.embed([query])
+        # 表达式部分索引要求查询侧 cast 与索引表达式完全一致才能命中索引：
+        # 先取该模型在本工作区的 dim（一行 SELECT），无任何向量行则直接返回空列表
+        dim = s.execute(
+            text(
+                "SELECT dim FROM chunk_embeddings "
+                "WHERE model_name = :model AND workspace_id = :ws_id LIMIT 1"
+            ),
+            {"model": emb_cfg.model, "ws_id": workspace_id},
+        ).scalar_one_or_none()
+        if dim is None:
+            return []
+        dim = int(dim)  # 内部 int，f-string 内联安全
         rows = s.execute(
             text(
-                """
+                f"""
                 SELECT c.id AS chunk_id, c.document_id, d.filename, c.content,
                        c.heading_path, c.page_no,
-                       (ce.embedding <=> :qvec) AS distance
+                       (ce.embedding::vector({dim}) <=> :qvec) AS distance
                 FROM chunk_embeddings ce
                 JOIN chunks c ON c.id = ce.chunk_id
                 JOIN documents d ON d.id = c.document_id
                 WHERE ce.workspace_id = :ws_id
                   AND ce.model_name = :model
+                  AND ce.dim = :dim
                   AND d.status = 'ready'
-                ORDER BY ce.embedding <=> :qvec
+                ORDER BY (ce.embedding::vector({dim}) <=> :qvec)
                 LIMIT :limit
                 """
             ),
@@ -139,6 +152,7 @@ async def search(
                 "qvec": _to_pgvector_string(qvec),
                 "ws_id": workspace_id,
                 "model": emb_cfg.model,
+                "dim": dim,
                 "limit": top_k,
             },
         ).mappings().all()

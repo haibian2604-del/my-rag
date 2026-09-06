@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.core.auth import require_auth
-from app.core.db import SessionLocal
+from app.core.db import SessionLocal, ensure_vector_index
 from app.models.entities import ChunkEmbedding
 from app.services.embedding_switch import read_state, write_state
 from app.services.ingestion.pipeline import get_default_provider
@@ -62,11 +62,16 @@ def get_switch_state():
 
 def _activate_model(s, model: str) -> None:
     """校验向量存在后切换默认 embedding provider 的 model，并记录 previous_model。"""
-    has_vector = s.execute(
-        select(ChunkEmbedding.id).where(ChunkEmbedding.model_name == model).limit(1)
-    ).scalar_one_or_none()
-    if has_vector is None:
+    dims = s.execute(
+        select(ChunkEmbedding.dim)
+        .where(ChunkEmbedding.model_name == model)
+        .distinct()
+    ).scalars().all()
+    if not dims:
         raise HTTPException(status_code=404, detail="该模型暂无可用向量")
+    # 激活新模型前保证其各维度已有 HNSW 索引（幂等；失败仅告警不阻塞激活）
+    for dim in dims:
+        ensure_vector_index(dim)
     try:
         provider = get_default_provider(s, "embedding")
     except RuntimeError:
