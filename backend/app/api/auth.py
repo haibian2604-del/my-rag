@@ -1,11 +1,11 @@
 import re
 
 import jwt
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
-from app.core.auth import COOKIE_NAME, create_token, hash_password, verify_password
+from app.core.auth import COOKIE_NAME, create_token, current_username, hash_password, verify_password
 from app.core.db import SessionLocal
 from app.models.entities import User
 
@@ -79,6 +79,11 @@ def login(body: CredentialsIn, response: Response):
     if user is None:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     _set_session_cookie(response, user.username)
+
+
+@router.get("/auth/me")
+def me(username: str = Depends(current_username)) -> dict:
+    return {"username": username}
 
 
 @router.post("/auth/logout", status_code=204)

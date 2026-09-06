@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, ensureDefaultWorkspace, post, type Workspace } from "./api/client";
+import { ApiError, ensureDefaultWorkspace, get, post, type Workspace } from "./api/client";
 import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -32,12 +32,17 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [needsAuth, setNeedsAuth] = useState(false);
+  const [username, setUsername] = useState("");
 
   const init = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       setWorkspace(await ensureDefaultWorkspace());
+      // 展示登录用户名；失败不阻塞主界面
+      get<{ username: string }>("/api/auth/me")
+        .then((u) => setUsername(u.username))
+        .catch(() => setUsername(""));
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         setNeedsAuth(true);
@@ -68,6 +73,7 @@ export default function App() {
     setWorkspace(null);
     setActiveConvId(null);
     setPage("chat");
+    setUsername("");
     setNeedsAuth(true);
   }, []);
 
@@ -109,12 +115,34 @@ export default function App() {
         {workspace && (
           <WorkspaceSwitcher workspace={workspace} onSwitch={setWorkspace} />
         )}
-        <div className="mt-auto px-2 pb-4">
+        <div className="mt-auto flex items-center gap-2.5 border-t border-line px-4 py-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-seal font-display text-sm uppercase text-white">
+            {(username[0] ?? "?").toUpperCase()}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium">
+            {username || "已登录"}
+          </span>
           <button
-            className="w-full rounded-md px-3 py-1.5 text-left text-sm text-faint transition-colors hover:text-seal"
+            title="退出登录"
+            aria-label="退出登录"
+            className="shrink-0 rounded-md p-1.5 text-faint transition-colors hover:bg-paper hover:text-seal"
             onClick={() => void logout()}
           >
-            退出登录
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" x2="9" y1="12" y2="12" />
+            </svg>
           </button>
         </div>
       </aside>

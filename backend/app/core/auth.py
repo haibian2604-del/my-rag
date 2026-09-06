@@ -38,3 +38,15 @@ def require_auth(request: Request) -> None:
         jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="登录已失效") from None
+
+
+def current_username(request: Request) -> str:
+    """FastAPI 依赖：校验 JWT Cookie 并返回登录用户名（sub）。"""
+    token = request.cookies.get(COOKIE_NAME)
+    if not token:
+        raise HTTPException(status_code=401, detail="未登录")
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="登录已失效") from None
+    return str(payload.get("sub") or "")

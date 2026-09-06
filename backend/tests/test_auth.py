@@ -130,3 +130,14 @@ def test_business_api_401_when_no_users(raw_client):
     assert raw_client.get("/api/workspaces").status_code == 401
     assert raw_client.get("/api/settings/providers").status_code == 401
     assert raw_client.get("/api/documents/1").status_code == 401
+
+
+def test_me_requires_auth_and_returns_username(raw_client):
+    # 未登录 401
+    assert raw_client.get("/api/auth/me").status_code == 401
+    raw_client.post(
+        "/api/auth/register", json={"username": "admin", "password": "secret-pw"}
+    )
+    resp = raw_client.get("/api/auth/me")
+    assert resp.status_code == 200
+    assert resp.json() == {"username": "admin"}
