@@ -1,6 +1,7 @@
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
+from app.api.deps import get_or_404
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
@@ -204,9 +205,7 @@ class WorkspaceSettingsIn(BaseModel):
 @router.get("/workspaces/{ws_id}/settings")
 def get_workspace_settings(ws_id: int):
     with SessionLocal() as s:
-        ws = s.get(Workspace, ws_id)
-        if not ws:
-            raise HTTPException(status_code=404, detail="workspace 不存在")
+        ws = get_or_404(s, Workspace, ws_id, "workspace 不存在")
         merged = {**RETRIEVAL_DEFAULTS, **(ws.params or {})}
         return merged
 
@@ -214,9 +213,7 @@ def get_workspace_settings(ws_id: int):
 @router.put("/workspaces/{ws_id}/settings")
 def update_workspace_settings(ws_id: int, body: WorkspaceSettingsIn):
     with SessionLocal() as s:
-        ws = s.get(Workspace, ws_id)
-        if not ws:
-            raise HTTPException(status_code=404, detail="workspace 不存在")
+        ws = get_or_404(s, Workspace, ws_id, "workspace 不存在")
         ws.params = body.model_dump()
         s.commit()
         return ws.params

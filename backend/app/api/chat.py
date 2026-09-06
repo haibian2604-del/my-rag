@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from app.api.deps import get_or_404
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
@@ -45,19 +46,10 @@ class AskIn(BaseModel):
     question: str
 
 
-def _get_conv(s, conv_id: int) -> Conversation:
-    conv = s.get(Conversation, conv_id)
-    if not conv:
-        raise HTTPException(status_code=404, detail="会话不存在")
-    return conv
-
-
 @router.post("/workspaces/{ws_id}/conversations", response_model=ConversationOut, status_code=201)
 def create_conversation(ws_id: int):
     with SessionLocal() as s:
-        ws = s.get(Workspace, ws_id)
-        if not ws:
-            raise HTTPException(status_code=404, detail="workspace 不存在")
+        get_or_404(s, Workspace, ws_id, "workspace 不存在")
         conv = Conversation(workspace_id=ws_id)
         s.add(conv)
         s.commit()
@@ -68,8 +60,7 @@ def create_conversation(ws_id: int):
 @router.get("/workspaces/{ws_id}/conversations", response_model=list[ConversationOut])
 def list_conversations(ws_id: int):
     with SessionLocal() as s:
-        if not s.get(Workspace, ws_id):
-            raise HTTPException(status_code=404, detail="workspace 不存在")
+        get_or_404(s, Workspace, ws_id, "workspace 不存在")
         rows = s.execute(
             select(Conversation).where(Conversation.workspace_id == ws_id)
             .order_by(Conversation.id.desc())
@@ -80,7 +71,7 @@ def list_conversations(ws_id: int):
 @router.put("/conversations/{conv_id}", response_model=ConversationOut)
 def update_conversation(conv_id: int, body: ConversationUpdateIn):
     with SessionLocal() as s:
-        conv = _get_conv(s, conv_id)
+        conv = get_or_404(s, Conversation, conv_id, "会话不存在")
         conv.title = body.title
         s.commit()
         s.refresh(conv)
@@ -90,7 +81,7 @@ def update_conversation(conv_id: int, body: ConversationUpdateIn):
 @router.get("/conversations/{conv_id}/messages", response_model=list[MessageOut])
 def list_messages(conv_id: int):
     with SessionLocal() as s:
-        _get_conv(s, conv_id)
+        get_or_404(s, Conversation, conv_id, "会话不存在")
         rows = s.execute(
             select(Message).where(Message.conversation_id == conv_id).order_by(Message.id)
         ).scalars().all()
@@ -100,14 +91,14 @@ def list_messages(conv_id: int):
 @router.delete("/conversations/{conv_id}", status_code=204)
 def delete_conversation(conv_id: int):
     with SessionLocal() as s:
-        s.delete(_get_conv(s, conv_id))
+        s.delete(get_or_404(s, Conversation, conv_id, "会话不存在"))
         s.commit()
 
 
 @router.post("/conversations/{conv_id}/ask")
 def ask(conv_id: int, body: AskIn):
     with SessionLocal() as s:
-        _get_conv(s, conv_id)
+        get_or_404(s, Conversation, conv_id, "会话不存在")
         try:
             get_default_provider(s, "llm")
         except RuntimeError:

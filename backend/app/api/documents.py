@@ -2,6 +2,7 @@ import hashlib
 from pathlib import Path as FsPath
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from app.api.deps import get_or_404
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
@@ -33,13 +34,6 @@ class DocumentOut(BaseModel):
     error: str | None
 
 
-def _get_ws(s, ws_id: int) -> Workspace:
-    ws = s.get(Workspace, ws_id)
-    if not ws:
-        raise HTTPException(status_code=404, detail="workspace 不存在")
-    return ws
-
-
 @router.post("/workspaces/{ws_id}/documents", response_model=DocumentOut, status_code=201)
 async def upload_document(ws_id: int, background_tasks: BackgroundTasks,
                           file: UploadFile = File(...)):  # noqa: B008
@@ -54,7 +48,7 @@ async def upload_document(ws_id: int, background_tasks: BackgroundTasks,
     mime = file.content_type or ""
 
     with SessionLocal() as s:
-        _get_ws(s, ws_id)
+        get_or_404(s, Workspace, ws_id, "workspace 不存在")
         doc = Document(workspace_id=ws_id, filename=filename, source_type="upload",
                        mime=mime, size=len(content), checksum=checksum, status="pending")
         s.add(doc)
@@ -78,7 +72,7 @@ class UrlIn(BaseModel):
 @router.post("/workspaces/{ws_id}/documents/url", response_model=DocumentOut, status_code=201)
 async def fetch_url_document(ws_id: int, body: UrlIn, background_tasks: BackgroundTasks):
     with SessionLocal() as s:
-        _get_ws(s, ws_id)
+        get_or_404(s, Workspace, ws_id, "workspace 不存在")
     try:
         doc = await fetch_url_to_doc(ws_id, body.url)
     except UrlFetchError as e:
@@ -90,7 +84,7 @@ async def fetch_url_document(ws_id: int, body: UrlIn, background_tasks: Backgrou
 @router.get("/workspaces/{ws_id}/documents", response_model=list[DocumentOut])
 def list_documents(ws_id: int):
     with SessionLocal() as s:
-        _get_ws(s, ws_id)
+        get_or_404(s, Workspace, ws_id, "workspace 不存在")
         docs = s.execute(
             select(Document).where(Document.workspace_id == ws_id).order_by(Document.id)
         ).scalars().all()

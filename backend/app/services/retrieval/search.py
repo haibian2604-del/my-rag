@@ -20,8 +20,6 @@ logger = logging.getLogger(__name__)
 
 RRF_K = 60
 
-Hit = dict
-
 
 def build_rerank_provider(cfg):
     """根据 rerank provider 配置构造重排器（模式同 build_embedding_provider）。"""
@@ -33,17 +31,6 @@ def build_rerank_provider(cfg):
 
 def _to_pgvector_string(vec: list[float]) -> str:
     return "[" + ",".join(f"{x:g}" for x in vec) + "]"
-
-
-def _rerank_score(query: str, content: str) -> float:
-    q = set(query)
-    if not q:
-        return 0.0
-    return len(q & set(content)) / len(q)
-
-
-def _rerank_hits(query: str, hits: list[Hit], top_n: int) -> list[Hit]:
-    return sorted(hits, key=lambda h: _rerank_score(query, h["content"]), reverse=True)[:top_n]
 
 
 def _fetch_chunk_fields(s, chunk_ids: list[int]) -> dict[int, dict]:
@@ -86,7 +73,7 @@ def _fts_recall(s, workspace_id: int, tokens: str, limit: int) -> list[int]:
     return [r["chunk_id"] for r in rows]
 
 
-def _rrf_fuse(vector_hits: list[Hit], fts_ids: list[int], top_k: int) -> list[Hit]:
+def _rrf_fuse(vector_hits: list[dict], fts_ids: list[int], top_k: int) -> list[dict]:
     """RRF 融合：rrf(chunk_id) = Σ 1/(60 + rank)，rank 从 1 起，缺席不计。"""
     rrf: dict[int, float] = {}
     for rank, h in enumerate(vector_hits, 1):
@@ -102,7 +89,7 @@ def _rrf_fuse(vector_hits: list[Hit], fts_ids: list[int], top_k: int) -> list[Hi
         logger.warning("FTS 命中 chunk 字段补取失败，丢弃 FTS 独有命中", exc_info=True)
         fields = {}
         fts_only = []
-    hits: dict[int, Hit] = {h["chunk_id"]: h for h in vector_hits}
+    hits: dict[int, dict] = {h["chunk_id"]: h for h in vector_hits}
     for cid in fts_only:
         f = fields.get(cid)
         if not f:  # 极端情况（并发删除）：跳过
@@ -127,7 +114,7 @@ async def search(
     top_k: int = 5,
     score_threshold: float = 0.0,
     hybrid: bool = True,
-) -> list[Hit]:
+) -> list[dict]:
     with SessionLocal() as s:
         emb_cfg = get_default_provider(s, "embedding")
         provider = build_embedding_provider(emb_cfg)
@@ -196,7 +183,7 @@ async def retrieve(
     top_n: int = 3,
     score_threshold: float = 0.0,
     hybrid: bool = True,
-) -> list[Hit]:
+) -> list[dict]:
     hits = await search(workspace_id, query, top_k=top_k,
                         score_threshold=score_threshold, hybrid=hybrid)
     if use_rerank is False or not hits:
@@ -206,8 +193,6 @@ async def retrieve(
             cfg = get_default_provider(s, "rerank")
         except RuntimeError:
             return hits
-    if cfg.provider == "fake":
-        return _rerank_hits(query, hits, top_n)
     try:
         provider = build_rerank_provider(cfg)
         idxs = await provider.rerank(query, [h["content"] for h in hits], top_n)

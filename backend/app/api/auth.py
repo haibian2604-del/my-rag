@@ -1,7 +1,6 @@
 import re
 
-import jwt
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
@@ -94,20 +93,10 @@ def logout():
 
 
 @router.put("/auth/password", status_code=204)
-def change_password(body: ChangePasswordIn, request: Request):
+def change_password(body: ChangePasswordIn,
+                    username: str = Depends(current_username)):
     if len(body.new_password) < 6:
         raise HTTPException(status_code=400, detail="密码至少 6 位")
-    from app.core.config import settings
-
-    try:
-        payload = jwt.decode(
-            request.cookies.get(COOKIE_NAME) or "",
-            settings.jwt_secret,
-            algorithms=["HS256"],
-        )
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="登录已失效") from None
-    username = payload.get("sub")
     with SessionLocal() as s:
         user = s.scalar(select(User).where(User.username == username))
         if user is None:

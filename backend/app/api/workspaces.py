@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from app.api.deps import get_or_404
 from pydantic import BaseModel, field_validator
 from sqlalchemy import func, select
 
@@ -60,9 +61,7 @@ def create_workspace(body: WorkspaceIn):
 @router.put("/workspaces/{ws_id}", response_model=WorkspaceOut)
 def update_workspace(ws_id: int, body: WorkspaceIn):
     with SessionLocal() as s:
-        ws = s.get(Workspace, ws_id)
-        if not ws:
-            raise HTTPException(status_code=404, detail="工作区不存在")
+        ws = get_or_404(s, Workspace, ws_id, "工作区不存在")
         dup = s.execute(
             select(Workspace).where(Workspace.name == body.name, Workspace.id != ws_id)
         ).scalar_one_or_none()
@@ -78,9 +77,7 @@ def update_workspace(ws_id: int, body: WorkspaceIn):
 @router.delete("/workspaces/{ws_id}", status_code=204)
 def delete_workspace(ws_id: int):
     with SessionLocal() as s:
-        ws = s.get(Workspace, ws_id)
-        if not ws:
-            raise HTTPException(status_code=404, detail="工作区不存在")
+        ws = get_or_404(s, Workspace, ws_id, "工作区不存在")
         total = s.execute(select(func.count()).select_from(Workspace)).scalar_one()
         if total <= 1:
             raise HTTPException(status_code=409, detail="至少保留一个工作区")

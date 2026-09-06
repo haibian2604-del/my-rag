@@ -29,19 +29,8 @@ def create_token(username: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
 
-def require_auth(request: Request) -> None:
-    """APIRouter 级依赖：校验 JWT Cookie，无 Cookie/无效/过期 → 401。"""
-    token = request.cookies.get(COOKIE_NAME)
-    if not token:
-        raise HTTPException(status_code=401, detail="未登录")
-    try:
-        jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="登录已失效") from None
-
-
 def current_username(request: Request) -> str:
-    """FastAPI 依赖：校验 JWT Cookie 并返回登录用户名（sub）。"""
+    """FastAPI 依赖：校验 JWT Cookie 并返回登录用户名（sub）；无 Cookie/无效/过期 → 401。"""
     token = request.cookies.get(COOKIE_NAME)
     if not token:
         raise HTTPException(status_code=401, detail="未登录")
@@ -50,3 +39,8 @@ def current_username(request: Request) -> str:
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="登录已失效") from None
     return str(payload.get("sub") or "")
+
+
+def require_auth(request: Request) -> None:
+    """APIRouter 级依赖：仅校验，不取值。"""
+    current_username(request)
