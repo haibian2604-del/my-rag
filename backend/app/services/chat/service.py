@@ -85,13 +85,16 @@ async def ask_stream(conversation_id: int, question: str) -> AsyncIterator[str]:
             hits = await retrieve(conv.workspace_id, question, use_rerank=use_rerank,
                                   top_k=top_k, score_threshold=score_threshold,
                                   hybrid=use_hybrid)
-            # 配置了默认 rerank provider 才提示重排阶段（实际重排在 retrieve 内部，失败自动降级）
-            try:
-                get_default_provider(s, "rerank")
-            except RuntimeError:
-                pass
-            else:
-                yield _sse({"type": "stage", "stage": "reranking"})
+            # 工作区未显式关闭重排（use_rerank is not False）且有命中、配置了
+            # 默认 rerank provider 时才提示重排阶段（实际重排在 retrieve 内部，
+            # 失败自动降级）
+            if use_rerank is not False and hits:
+                try:
+                    get_default_provider(s, "rerank")
+                except RuntimeError:
+                    pass
+                else:
+                    yield _sse({"type": "stage", "stage": "reranking"})
             yield _sse({"type": "stage", "stage": "generating"})
             ctx, citations = build_context(hits, max_tokens=max_tokens)
             # 先取历史（不含本问），再落库 user 消息，避免历史里混入刚写入的问题

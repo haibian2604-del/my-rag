@@ -20,6 +20,13 @@ logger = logging.getLogger(__name__)
 
 RRF_K = 60
 
+# 叶子原则（父子分块，兼容旧数据）：检索单元 = parent_id 非空的子块，
+# 或没有子块指向自己的块（旧文档未回填时父块自身即叶子，行为与从前一致）。
+_LEAF_FILTER = """
+              AND (c.parent_id IS NOT NULL
+                   OR NOT EXISTS (SELECT 1 FROM chunks ch WHERE ch.parent_id = c.id))
+"""
+
 
 def build_rerank_provider(cfg):
     """根据 rerank provider 配置构造重排器（模式同 build_embedding_provider）。"""
@@ -64,6 +71,7 @@ def _fts_recall(s, workspace_id: int, tokens: str, limit: int) -> list[int]:
             WHERE c.workspace_id = :ws_id
               AND d.status = 'ready'
               AND c.fts @@ websearch_to_tsquery('simple', :tokens)
+""" + _LEAF_FILTER + """
             ORDER BY rank_score DESC
             LIMIT :limit
             """
@@ -108,6 +116,68 @@ def _rrf_fuse(vector_hits: list[dict], fts_ids: list[int], top_k: int) -> list[d
     return fused[:top_k]
 
 
+def _aggregate_parents(hits: list[dict]) -> list[dict]:
+    """子块命中按父块分组去重，返回结构保持不变。
+
+    - chunk_id = 父块 id，content = 父块全文，heading_path/page_no 取父块；
+    - score = 组内最高子块分；附带 child_hits = 组内命中子块数（供前端展示）；
+    - 组间顺序 = 首次出现的顺序（输入已按相关性排序，不按 score 重排，
+      以免破坏 rerank 的顺序语义）；
+    - 旧文档无父子结构（全为叶子）时逐条原样映射，行为与从前完全一致；
+    - 父块信息补查失败仅降级为未聚合结果，检索永不因此失败。
+    """
+    if not hits:
+        return []
+    try:
+        with SessionLocal() as s:
+            rows = s.execute(
+                text(
+                    """
+                    SELECT c.id AS chunk_id, c.parent_id,
+                           p.content AS parent_content,
+                           p.heading_path AS parent_heading,
+                           p.page_no AS parent_page
+                    FROM chunks c
+                    LEFT JOIN chunks p ON p.id = c.parent_id
+                    WHERE c.id IN :ids
+                    """
+                ).bindparams(bindparam("ids", expanding=True)),
+                {"ids": [h["chunk_id"] for h in hits]},
+            ).mappings().all()
+    except Exception:
+        logger.warning("父块信息补取失败，返回未聚合的子块命中", exc_info=True)
+        return hits
+    info = {r["chunk_id"]: dict(r) for r in rows}
+    groups: dict[int, dict] = {}
+    order: list[int] = []
+    for h in hits:
+        r = info.get(h["chunk_id"])
+        # 无子块的叶子（父块自身）：按自身透传；有 parent_id 则归到父块
+        if r and r["parent_id"] is not None:
+            pid = r["parent_id"]
+            content = r["parent_content"] if r["parent_content"] is not None else h["content"]
+            heading = r["parent_heading"] if r["parent_heading"] is not None else h["heading_path"]
+            page = r["parent_page"] if r["parent_page"] is not None else h["page_no"]
+        else:
+            pid, content, heading, page = h["chunk_id"], h["content"], h["heading_path"], h["page_no"]
+        if pid not in groups:
+            groups[pid] = {
+                "chunk_id": pid,
+                "document_id": h["document_id"],
+                "filename": h["filename"],
+                "content": content,
+                "heading_path": heading or "",
+                "page_no": page,
+                "score": h["score"],
+                "child_hits": 0,
+            }
+            order.append(pid)
+        g = groups[pid]
+        g["child_hits"] += 1
+        g["score"] = max(g["score"], h["score"])  # 组内最高子块分
+    return [groups[pid] for pid in order]
+
+
 async def search(
     workspace_id: int,
     query: str,
@@ -144,6 +214,7 @@ async def search(
                   AND ce.model_name = :model
                   AND ce.dim = :dim
                   AND d.status = 'ready'
+""" + _LEAF_FILTER + f"""
                 ORDER BY (ce.embedding::vector({dim}) <=> :qvec)
                 LIMIT :limit
                 """
@@ -201,17 +272,18 @@ async def retrieve(
     hits = await search(workspace_id, query, top_k=top_k,
                         score_threshold=score_threshold, hybrid=hybrid)
     if use_rerank is False or not hits:
-        return hits
+        return _aggregate_parents(hits)
     with SessionLocal() as s:
         try:
             cfg = get_default_provider(s, "rerank")
         except RuntimeError:
-            return hits
+            return _aggregate_parents(hits)
     try:
         provider = build_rerank_provider(cfg)
         idxs = await provider.rerank(query, [h["content"] for h in hits], top_n)
-        # rerank 只重排+截断 top_n，不扩大集合
-        return [hits[i] for i in idxs]
+        # rerank 在子块列表上只重排+截断 top_n，不扩大集合；聚合到父块在后
+        reranked = [hits[i] for i in idxs]
     except Exception:  # rerank 失败降级，检索永不因 rerank 失败而失败
         logger.warning("rerank 调用失败，降级返回未重排结果", exc_info=True)
-        return hits
+        reranked = hits
+    return _aggregate_parents(reranked)

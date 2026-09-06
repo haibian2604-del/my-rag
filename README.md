@@ -93,3 +93,11 @@ cd backend && uv run python -m app.services.ingestion.backfill_fts
 ```bash
 cd backend && uv run python -m tests.evaluation.run_eval --compare
 ```
+
+## 父子分块说明
+
+新文档默认按「父块 500 token / 子块 200 token（同节内轻重叠）」父子切分：嵌入与全文索引都建在子块上，检索命中子块后按父块聚合去重，引用返回父块全文作为更完整的上下文。存量文档不回填也不影响检索（旧块自身即检索单元）；回填后可享受父块级上下文：
+
+```bash
+cd backend && uv run python -m app.services.ingestion.backfill_parent_child
+```

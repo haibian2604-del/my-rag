@@ -10,7 +10,7 @@ import shutil
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select, text
+from sqlalchemy import text
 
 from app.core.config import settings as app_settings  # noqa: F401
 from app.core.db import SessionLocal
@@ -179,7 +179,11 @@ async def test_backfill_fts_idempotent(hybrid_seed):
 
 
 def test_ingest_writes_fts(tmp_path, hybrid_seed):
-    """ingest 管线写入 fts 列（覆盖 pipeline 的 fts 表达式）。"""
+    """ingest 管线写入 fts 列（覆盖 pipeline 的 fts 表达式）。
+
+    父子分块语义：fts 建在叶子块上——短文档父块即叶子（fts 非空）；
+    若切出子块，父块行 fts 为空、子块行 fts 非空。
+    """
     from app.core.config import settings
     from app.jobs.runner import run_ingestion_sync
 
@@ -202,11 +206,22 @@ def test_ingest_writes_fts(tmp_path, hybrid_seed):
     with SessionLocal() as s:
         d = s.get(Document, doc_id)
         assert d.status == "ready"
-        nulls = s.execute(
-            select(func.count()).select_from(Chunk)
-            .where(Chunk.document_id == doc_id, Chunk.fts.is_(None))
-        ).scalar()
-        assert nulls == 0
+        rows = s.execute(text(
+            """
+            SELECT c.id, c.parent_id IS NOT NULL AS is_child,
+                   EXISTS (SELECT 1 FROM chunks ch WHERE ch.parent_id = c.id) AS has_children,
+                   c.fts IS NOT NULL AS has_fts
+            FROM chunks c WHERE c.document_id = :did
+            """
+        ), {"did": doc_id}).mappings().all()
+        assert rows
+        # 每个叶子块（无子块指向自己）都有 fts；父块行 fts 可为空
+        for r in rows:
+            if r["has_children"]:
+                assert not r["has_fts"]  # 有子块的父块不建 fts
+            else:
+                assert r["has_fts"]  # 叶子块（子块或短父块）必建 fts
+        assert not any(r["is_child"] and not r["has_fts"] for r in rows)
         s.delete(d)
         s.commit()
 

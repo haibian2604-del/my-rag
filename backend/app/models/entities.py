@@ -39,6 +39,10 @@ class Chunk(Base):
     document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     ordinal: Mapped[int] = mapped_column(Integer)
+    # 父子分块：父块 parent_id 为空仅存全文；子块 parent_id 指向父块，
+    # 是唯一被嵌入/FTS/检索单元。自引用外键，删父块级联删子块。
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("chunks.id", ondelete="CASCADE"), nullable=True, index=True)
     content: Mapped[str] = mapped_column(Text)
     token_count: Mapped[int] = mapped_column(Integer, default=0)
     heading_path: Mapped[str] = mapped_column(Text, default="")
