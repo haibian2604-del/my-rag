@@ -3,7 +3,7 @@ import { ApiError, ensureDefaultWorkspace, type Workspace } from "./api/client";
 import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import SettingsPage from "./pages/SettingsPage";
-import LoginGate from "./components/LoginGate";
+import LoginPage from "./pages/LoginPage";
 import WorkspaceSwitcher from "./components/WorkspaceSwitcher";
 
 type Page = "chat" | "documents" | "settings";
@@ -61,7 +61,7 @@ export default function App() {
 
   if (needsAuth) {
     return (
-      <LoginGate
+      <LoginPage
         onUnlocked={() => {
           setNeedsAuth(false);
           void init();
