@@ -2,7 +2,8 @@ import asyncio
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, or_, select
+from sqlalchemy.orm import aliased
 
 from app.core.db import SessionLocal
 from app.jobs.runner import run_ingestion_sync
@@ -72,11 +73,15 @@ def test_reembed_all(ws_with_fake_embedding):
                         if c.parent_id is not None or c.id not in parent_ids]
             total = len(leaf_ids)
             assert 0 < total < len(chunks)  # 本 fixture 文档必有父块被切出子块
-            # 全库 ready chunk 总数（共享开发库可能有其他工作区的 ready 文档）
+            # 全库 ready 叶子块总数（共享开发库可能有其他工作区的 ready 文档）；
+            # reembed 只统计叶子块，父块不再计入 total
+            _leaf = aliased(Chunk)
             grand_total = s.execute(
                 select(func.count()).select_from(Chunk)
                 .join(Document, Chunk.document_id == Document.id)
-                .where(Document.status == "ready")
+                .where(Document.status == "ready",
+                       or_(Chunk.parent_id.isnot(None),
+                           ~exists().where(_leaf.parent_id == Chunk.id)))
             ).scalar()
             # 摄取后叶子块向量 model_name=fake-embed
             old_count = s.execute(
@@ -89,19 +94,27 @@ def test_reembed_all(ws_with_fake_embedding):
         asyncio.run(reembed_all("target-model-x"))
 
         with SessionLocal() as s:
-            chunk_ids = [c.id for c in s.execute(select(Chunk).where(
+            all_ids = [c.id for c in s.execute(select(Chunk).where(
                 Chunk.document_id.in_([d1, d2]))).scalars().all()]
-            # 重嵌按 chunk 逐条覆盖（含父块行，其向量被叶子过滤忽略，不参与检索）
+            parent_only = [cid for cid in all_ids if cid not in set(leaf_ids)]
+            # 重嵌按叶子 chunk 逐条覆盖；父块不产生向量
             new_count = s.execute(
                 select(func.count()).select_from(ChunkEmbedding)
-                .where(ChunkEmbedding.chunk_id.in_(chunk_ids),
+                .where(ChunkEmbedding.chunk_id.in_(leaf_ids),
                        ChunkEmbedding.model_name == "target-model-x")
             ).scalar()
-            assert new_count == len(chunk_ids)
+            assert new_count == total
+            if parent_only:
+                parent_vec = s.execute(
+                    select(func.count()).select_from(ChunkEmbedding)
+                    .where(ChunkEmbedding.chunk_id.in_(parent_only),
+                           ChunkEmbedding.model_name == "target-model-x")
+                ).scalar()
+                assert parent_vec == 0
             # 旧向量仍在
             old_count = s.execute(
                 select(func.count()).select_from(ChunkEmbedding)
-                .where(ChunkEmbedding.chunk_id.in_(chunk_ids),
+                .where(ChunkEmbedding.chunk_id.in_(leaf_ids),
                        ChunkEmbedding.model_name == "fake-embed")
             ).scalar()
             assert old_count == total
@@ -116,10 +129,10 @@ def test_reembed_all(ws_with_fake_embedding):
         with SessionLocal() as s:
             new_count = s.execute(
                 select(func.count()).select_from(ChunkEmbedding)
-                .where(ChunkEmbedding.chunk_id.in_(chunk_ids),
+                .where(ChunkEmbedding.chunk_id.in_(leaf_ids),
                        ChunkEmbedding.model_name == "target-model-x")
             ).scalar()
-            assert new_count == len(chunk_ids)
+            assert new_count == total
     finally:
         with SessionLocal() as s:
             for did in (d1, d2):

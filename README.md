@@ -79,6 +79,7 @@ docker compose up -d --build
 - [x] 中文检索评测集与 recall@5 脚本
 - [x] M2：网页 URL 抓取入库、嵌入模型切换向导（并行重嵌 / 回滚）
 - [x] M3：重排接入默认链路（oMLX reranker）、混合检索（jieba + FTS + RRF）、数据备份脚本
+- [x] M4：HNSW 向量索引、检索阶段进度（SSE stage）、父子分块（子块检索 / 父块上下文）、PDF 表格转 Markdown 与扫描件识别
 
 ## 混合检索说明
 

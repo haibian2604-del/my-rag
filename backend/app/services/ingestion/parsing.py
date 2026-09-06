@@ -5,7 +5,7 @@ Block = {"text": str, "page_no": int | None, "heading_path": str}
 """
 from pathlib import Path
 
-import fitz  # pymupdf
+import pymupdf  # 新 API（import fitz 已弃用）
 from docx import Document as DocxDocument
 from markdown_it import MarkdownIt
 
@@ -76,12 +76,70 @@ def _split_paragraphs(content: str) -> list[str]:
     return paras
 
 
+SCAN_ERROR = "疑似扫描件 PDF，暂不支持 OCR，请使用含文本层的 PDF"
+
+
+def _table_to_markdown(rows: list[list[str | None]]) -> str | None:
+    """把 find_tables 抽到的单元格矩阵转为 Markdown 管道表（| a | b | + 分隔行）。
+
+    - 至少 2 行 2 列才视为有效表格，避免把画在矩形框里的普通文本误判为表；
+    - 单元格内换行折为空格，竖线转义，短行补空单元格。
+    """
+    if len(rows) < 2 or max(len(r) for r in rows) < 2:
+        return None
+    n_cols = max(len(r) for r in rows)
+
+    def clean(cell: str | None) -> str:
+        return (cell or "").replace("\n", " ").replace("|", "\\|").strip()
+
+    table = [[clean(c) for c in r] + [""] * (n_cols - len(r)) for r in rows]
+    lines = ["| " + " | ".join(r) + " |" for r in table]
+    # 分隔行插在表头之后
+    lines.insert(1, "| " + " | ".join(["---"] * n_cols) + " |")
+    return "\n".join(lines)
+
+
 def _parse_pdf(path: Path) -> list[dict]:
     blocks: list[dict] = []
-    with fitz.open(path) as doc:
+    with pymupdf.open(path) as doc:
+        total_chars = 0
         for page_no, page in enumerate(doc, start=1):
-            for text in _split_paragraphs(page.get_text()):
+            # 页面条目 = [(y, x, 文本)]，按 (y, x) 排序即先上后下、同行先左后右
+            items: list[tuple[float, float, str]] = []
+            # 表格抽取：转 Markdown 管道表并按其页面位置插入，同时记录区域
+            table_rects: list[pymupdf.Rect] = []
+            try:
+                finder = page.find_tables()
+            except Exception:  # 个别异常页面表格检测失败时降级为纯文本，不阻塞摄取
+                finder = None
+            if finder is not None:
+                for tab in finder.tables:
+                    md = _table_to_markdown(tab.extract())
+                    if md is None:
+                        continue
+                    x0, y0, x1, y1 = tab.bbox
+                    items.append((y0, x0, md))
+                    table_rects.append(pymupdf.Rect(x0, y0, x1, y1))
+            # 普通文本块：块级 (y, x) 排序保证双栏可读；与表格区域重叠过半的
+            # 块（即表格单元格文字）剔除，避免表格内容重复提取
+            for b in page.get_text("blocks", sort=True):
+                if b[6] != 0:  # 1 = 图片块
+                    continue
+                rect = pymupdf.Rect(b[:4])
+                if any(
+                    not (rect & tr).is_empty and (rect & tr).get_area() > 0.5 * rect.get_area()
+                    for tr in table_rects
+                ):
+                    continue
+                for text in _split_paragraphs(b[4]):
+                    items.append((b[1], b[0], text))
+            items.sort(key=lambda it: (it[0], it[1]))
+            for _, _, text in items:
                 blocks.append({"text": text, "page_no": page_no, "heading_path": ""})
+            total_chars += len(page.get_text())
+    # 扫描件识别：全文几乎没有可提取文本层时明确报错，避免产出空文档
+    if total_chars < 20:
+        raise ValueError(SCAN_ERROR)
     return blocks
 
 
