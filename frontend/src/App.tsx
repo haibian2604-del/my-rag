@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, ensureDefaultWorkspace, type Workspace } from "./api/client";
+import { ApiError, ensureDefaultWorkspace, post, type Workspace } from "./api/client";
 import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -59,6 +59,18 @@ export default function App() {
     return () => window.removeEventListener("rag:unauthorized", onUnauthorized);
   }, []);
 
+  const logout = useCallback(async () => {
+    try {
+      await post("/api/auth/logout");
+    } catch {
+      // Cookie 已失效时后端也会失败，直接回登录页即可
+    }
+    setWorkspace(null);
+    setActiveConvId(null);
+    setPage("chat");
+    setNeedsAuth(true);
+  }, []);
+
   if (needsAuth) {
     return (
       <LoginPage
@@ -97,6 +109,14 @@ export default function App() {
         {workspace && (
           <WorkspaceSwitcher workspace={workspace} onSwitch={setWorkspace} />
         )}
+        <div className="mt-auto px-2 pb-4">
+          <button
+            className="w-full rounded-md px-3 py-1.5 text-left text-sm text-faint transition-colors hover:text-seal"
+            onClick={() => void logout()}
+          >
+            退出登录
+          </button>
+        </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
