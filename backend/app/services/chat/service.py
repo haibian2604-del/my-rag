@@ -61,7 +61,11 @@ def _sse(event: dict) -> str:
 
 
 async def ask_stream(conversation_id: int, question: str) -> AsyncIterator[str]:
-    """SSE 生成器：citations → delta* → done；异常发 error 事件后结束。"""
+    """SSE 生成器：stage → citations → delta* → done；异常发 error 事件后结束。
+
+    stage 事件（retrieving/reranking/generating）用于前端等待态提示，
+    逐个及时 yield，保证客户端尽早收到。
+    """
     with SessionLocal() as s:
         conv = s.get(Conversation, conversation_id)
         if not conv:
@@ -77,9 +81,18 @@ async def ask_stream(conversation_id: int, question: str) -> AsyncIterator[str]:
             use_rerank = None if _rerank is None else bool(_rerank)
             use_hybrid = bool(ws_params.get("use_hybrid", True))
             max_tokens = int(ws_params.get("context_max_tokens", 3000))
+            yield _sse({"type": "stage", "stage": "retrieving"})
             hits = await retrieve(conv.workspace_id, question, use_rerank=use_rerank,
                                   top_k=top_k, score_threshold=score_threshold,
                                   hybrid=use_hybrid)
+            # 配置了默认 rerank provider 才提示重排阶段（实际重排在 retrieve 内部，失败自动降级）
+            try:
+                get_default_provider(s, "rerank")
+            except RuntimeError:
+                pass
+            else:
+                yield _sse({"type": "stage", "stage": "reranking"})
+            yield _sse({"type": "stage", "stage": "generating"})
             ctx, citations = build_context(hits, max_tokens=max_tokens)
             # 先取历史（不含本问），再落库 user 消息，避免历史里混入刚写入的问题
             history = load_history(s, conversation_id)

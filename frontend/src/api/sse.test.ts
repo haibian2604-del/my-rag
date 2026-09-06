@@ -58,6 +58,19 @@ describe("parseSSE", () => {
     expect(events).toEqual([{ type: "done" }]);
   });
 
+  it("解析 stage 阶段事件", async () => {
+    const events = await collect(streamFrom([
+      'data: {"type":"stage","stage":"retrieving"}\n\n',
+      'data: {"type":"stage","stage":"reranking"}\n\n',
+      'data: {"type":"stage","stage":"generating"}\n\n',
+    ]));
+    expect(events).toEqual([
+      { type: "stage", stage: "retrieving" },
+      { type: "stage", stage: "reranking" },
+      { type: "stage", stage: "generating" },
+    ]);
+  });
+
   it("解析 error 事件", async () => {
     const events = await collect(streamFrom([
       'data: {"type":"error","message":"未配置 LLM"}\n\n',
