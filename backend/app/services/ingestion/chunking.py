@@ -110,3 +110,29 @@ def split_parents_and_children(
             )
         units.append({**p, "children": children})
     return units
+
+
+def split_faq_blocks(blocks: list[dict]) -> list[dict]:
+    """FAQ 父子切分（M5-T4）：每个 FAQ 对 = 一个独立父块，不与其他对聚合。
+
+    - 父块全文 = 问题+答案合并（解析层已合并进 block["text"]），不设 token 上限——
+      保证问答对完整、引用返回完整问答（超长答案也整体保留，最小扰动）；
+    - 子块 = 问题部分（block["faq_question"]），embedding/FTS 建在子块上；
+    - 子块继承父块的 heading_path（即 `FAQ: {问题前30字}`）与 page_no。
+    """
+    units: list[dict] = []
+    for b in blocks:
+        question = b.get("faq_question") or b["text"]
+        units.append({
+            "text": b["text"],
+            "heading_path": b.get("heading_path", ""),
+            "page_no": b.get("page_no"),
+            "token_count": _tokens(b["text"]),
+            "children": [{
+                "text": question,
+                "heading_path": b.get("heading_path", ""),
+                "page_no": b.get("page_no"),
+                "token_count": _tokens(question),
+            }],
+        })
+    return units

@@ -13,7 +13,7 @@ from app.core.db import SessionLocal
 from app.models.entities import Chunk, ChunkEmbedding, Document, ProviderConfig
 from app.providers.embedding.fake import FakeEmbedding
 from app.providers.embedding.openai_compat import OpenAICompatEmbedding
-from app.services.ingestion.chunking import split_parents_and_children
+from app.services.ingestion.chunking import split_faq_blocks, split_parents_and_children
 from app.services.ingestion.parsing import parse_file
 from app.services.ingestion.tokenize import tokenize_for_fts
 from app.services.providers_service import decrypt_api_key
@@ -67,7 +67,11 @@ async def ingest_document(document_id: int) -> None:
             doc.status = "parsing"
             s.commit()
             blocks = parse_file(doc_file_path(doc), doc.mime)
-            units = split_parents_and_children(blocks)
+            # FAQ 文档（M5-T4）：每个问答对 = 独立父块（全文=问+答），问题部分为子块
+            if any("faq_question" in b for b in blocks):
+                units = split_faq_blocks(blocks)
+            else:
+                units = split_parents_and_children(blocks)
             doc.status = "embedding"
             s.commit()
             emb_cfg = get_default_provider(s, "embedding")

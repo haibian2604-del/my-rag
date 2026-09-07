@@ -102,3 +102,23 @@ cd backend && uv run python -m tests.evaluation.run_eval --compare
 ```bash
 cd backend && uv run python -m app.services.ingestion.backfill_parent_child
 ```
+
+## FAQ 知识库模式
+
+上传的 Markdown 文件若首部含 `<!-- faq -->` 标记，即按 FAQ 结构解析。支持三种问答形态（可混用）：
+
+```markdown
+<!-- faq -->
+
+Q: 如何重置密码？
+A: 在登录页点击「忘记密码」，按邮件指引操作。
+
+**问**：支持哪些付款方式？
+**答**：支付宝、微信与银行卡。
+
+| 问题 | 答案 |
+| --- | --- |
+| 退货流程是什么？ | 在订单页申请退货，寄回后退款。 |
+```
+
+每个问答对切成一个独立父块（全文 = 问题 + 答案），问题部分作为子块承担向量与全文检索；检索命中后引用返回完整问答父块，标题路径显示为 `FAQ: {问题前 30 字}`，问答不会跨对被切断或混排。文件带标记但解析不出任何问答对时，自动降级为普通 Markdown 解析，不影响正常入库。
