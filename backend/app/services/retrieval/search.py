@@ -12,7 +12,8 @@ from sqlalchemy import bindparam, text
 
 from app.core.db import SessionLocal
 from app.providers.rerank.omlx import OMLXRerank
-from app.services.ingestion.pipeline import build_embedding_provider, get_default_provider
+from app.services.ingestion.pipeline import (build_embedding_provider, default_provider_or_none,
+                                             get_default_provider)
 from app.services.ingestion.tokenize import tokenize_for_fts
 from app.services.providers_service import decrypt_api_key
 
@@ -120,7 +121,7 @@ def _aggregate_parents(hits: list[dict]) -> list[dict]:
     """子块命中按父块分组去重，返回结构保持不变。
 
     - chunk_id = 父块 id，content = 父块全文，heading_path/page_no 取父块；
-    - score = 组内最高子块分；附带 child_hits = 组内命中子块数（供前端展示）；
+    - score = 组内最高子块分；
     - 组间顺序 = 首次出现的顺序（输入已按相关性排序，不按 score 重排，
       以免破坏 rerank 的顺序语义）；
     - 旧文档无父子结构（全为叶子）时逐条原样映射，行为与从前完全一致；
@@ -169,11 +170,9 @@ def _aggregate_parents(hits: list[dict]) -> list[dict]:
                 "heading_path": heading or "",
                 "page_no": page,
                 "score": h["score"],
-                "child_hits": 0,
             }
             order.append(pid)
         g = groups[pid]
-        g["child_hits"] += 1
         g["score"] = max(g["score"], h["score"])  # 组内最高子块分
     return [groups[pid] for pid in order]
 
@@ -274,9 +273,8 @@ async def retrieve(
     if use_rerank is False or not hits:
         return _aggregate_parents(hits)
     with SessionLocal() as s:
-        try:
-            cfg = get_default_provider(s, "rerank")
-        except RuntimeError:
+        cfg = default_provider_or_none(s, "rerank")
+        if cfg is None:
             return _aggregate_parents(hits)
     try:
         provider = build_rerank_provider(cfg)

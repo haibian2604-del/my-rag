@@ -9,7 +9,7 @@ from app.core.db import SessionLocal
 from app.models.entities import Conversation, Message, ProviderConfig, Workspace
 from app.providers.llm.fake import FakeLLM
 from app.providers.llm.openai_compat import OpenAICompatLLM
-from app.services.ingestion.pipeline import get_default_provider
+from app.services.ingestion.pipeline import default_provider_or_none, get_default_provider
 from app.services.providers_service import decrypt_api_key
 from app.services.retrieval.context import build_context
 from app.services.retrieval.search import retrieve
@@ -88,13 +88,8 @@ async def ask_stream(conversation_id: int, question: str) -> AsyncIterator[str]:
             # 工作区未显式关闭重排（use_rerank is not False）且有命中、配置了
             # 默认 rerank provider 时才提示重排阶段（实际重排在 retrieve 内部，
             # 失败自动降级）
-            if use_rerank is not False and hits:
-                try:
-                    get_default_provider(s, "rerank")
-                except RuntimeError:
-                    pass
-                else:
-                    yield _sse({"type": "stage", "stage": "reranking"})
+            if use_rerank is not False and hits and default_provider_or_none(s, "rerank") is not None:
+                yield _sse({"type": "stage", "stage": "reranking"})
             yield _sse({"type": "stage", "stage": "generating"})
             ctx, citations = build_context(hits, max_tokens=max_tokens)
             # 先取历史（不含本问），再落库 user 消息，避免历史里混入刚写入的问题

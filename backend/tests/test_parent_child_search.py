@@ -154,13 +154,11 @@ async def test_retrieve_aggregates_children_by_parent(pc_seed):
     assert g["content"] == PARENT_TEXT  # 父块全文
     assert g["heading_path"] == "售后/总则"  # 父块元数据
     assert g["page_no"] == 1
-    assert g["child_hits"] == 2
     assert g["score"] == pytest.approx(max(scores[pc_seed["c1_id"]], scores[pc_seed["c2_id"]]))
 
-    # 旧叶子块逐条透传，child_hits=1
+    # 旧叶子块逐条透传
     lg = by_id[pc_seed["legacy_id"]]
     assert lg["content"] == LEGACY_TEXT
-    assert lg["child_hits"] == 1
     assert lg["score"] == pytest.approx(scores[pc_seed["legacy_id"]])
 
 
@@ -190,7 +188,6 @@ async def test_retrieve_aggregates_after_rerank(pc_seed, httpx_mock):
     g = hits[0]
     assert g["chunk_id"] == pc_seed["parent_id"]  # 子块命中聚合到父块
     assert g["content"] == PARENT_TEXT
-    assert g["child_hits"] == 1
     assert httpx_mock.get_requests()[0].url.path.endswith("/rerank")
 
 

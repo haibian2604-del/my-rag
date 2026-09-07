@@ -36,6 +36,14 @@ def get_default_provider(s: Session, kind: str) -> ProviderConfig:
     return cfg
 
 
+def default_provider_or_none(s: Session, kind: str) -> ProviderConfig | None:
+    """探测默认 provider：配了返回配置行，没配返回 None（不抛异常）。"""
+    try:
+        return get_default_provider(s, kind)
+    except RuntimeError:
+        return None
+
+
 def build_embedding_provider(cfg: ProviderConfig):
     if cfg.provider == "fake":
         params = cfg.params or {}
@@ -74,31 +82,31 @@ async def ingest_document(document_id: int) -> None:
             # fts 直接建在父块上（兼容旧文档语义）。
             embeddable: list[Chunk] = []  # 待嵌入的叶子块：有子块则仅子块，否则父块本身
             ordinal = 0
-            for u in units:
-                parent = Chunk(
+
+            def make_chunk(text: str, token_count: int, parent_id: int | None, fts) -> Chunk:
+                return Chunk(
                     document_id=document_id, workspace_id=doc.workspace_id,
-                    ordinal=ordinal, parent_id=None,
-                    content=u["text"], token_count=u.get("token_count", 0),
-                    heading_path=u.get("heading_path", ""), page_no=u.get("page_no"),
-                    fts=func.to_tsvector("simple", tokenize_for_fts(u["text"]))
-                    if not u["children"] else None,
+                    ordinal=ordinal, parent_id=parent_id,
+                    content=text, token_count=token_count,
+                    heading_path=heading_path, page_no=page_no, fts=fts,
                 )
+
+            for u in units:
+                heading_path, page_no = u.get("heading_path", ""), u.get("page_no")
+                parent = make_chunk(u["text"], u.get("token_count", 0), None,
+                                    None if u["children"]
+                                    else func.to_tsvector("simple", tokenize_for_fts(u["text"])))
                 s.add(parent)
                 s.flush()  # 取 parent.id 供子块外键引用
                 ordinal += 1
                 if u["children"]:
-                    children = [
-                        Chunk(
-                            document_id=document_id, workspace_id=doc.workspace_id,
-                            ordinal=ordinal, parent_id=parent.id,
-                            content=c["text"], token_count=c.get("token_count", 0),
-                            heading_path=c.get("heading_path", ""), page_no=c.get("page_no"),
-                            fts=func.to_tsvector("simple", tokenize_for_fts(c["text"])),
-                        )
-                        for c in u["children"]
-                    ]
+                    children = []
+                    for c in u["children"]:
+                        children.append(make_chunk(
+                            c["text"], c.get("token_count", 0), parent.id,
+                            func.to_tsvector("simple", tokenize_for_fts(c["text"]))))
+                        ordinal += 1
                     s.add_all(children)
-                    ordinal += len(children)
                     embeddable.extend(children)
                 else:
                     embeddable.append(parent)

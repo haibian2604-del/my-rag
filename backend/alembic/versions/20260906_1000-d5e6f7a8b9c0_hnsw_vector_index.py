@@ -30,13 +30,12 @@ def _existing_dims() -> list[int]:
 
 
 def upgrade() -> None:
+    # DDL 单一出处：与 app/core/db.py ensure_vector_index 逐字共用，
+    # 查询侧 cast 命中依赖表达式一致
+    from app.core.db import ensure_vector_index
+
     for dim in _existing_dims():
-        # dim 为内部 int，f-string 内联安全
-        op.get_bind().execute(text(
-            f"CREATE INDEX IF NOT EXISTS ix_ce_hnsw_{dim} ON chunk_embeddings "
-            f"USING hnsw ((embedding::vector({dim})) vector_cosine_ops) "
-            f"WHERE dim = {dim}"
-        ))
+        ensure_vector_index(dim)
 
 
 def downgrade() -> None:

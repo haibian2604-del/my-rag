@@ -41,10 +41,6 @@ def backfill_parent_child() -> tuple[int, list[tuple[int, str]]]:
             print(f"  [{i}/{len(doc_ids)}] 文档 {doc_id} 回填失败：{reason}")
             logger.warning("文档 %s 父子分块回填失败: %s", doc_id, e)
     print(f"回填汇总：成功 {ok}，失败 {len(failures)}，共 {len(doc_ids)}")
-    if failures:
-        print("失败文档：")
-        for doc_id, _reason in failures:
-            print(f"  - 文档 {doc_id}")
     return ok, failures
 
 
