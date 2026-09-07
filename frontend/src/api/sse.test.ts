@@ -71,6 +71,35 @@ describe("parseSSE", () => {
     ]);
   });
 
+  it("解析 agent 工具时间线事件（tool_call/tool_result）", async () => {
+    const events = await collect(streamFrom([
+      'data: {"type":"agent","event":"tool_call","tool":"kb_search","args":{"query":"向量检索"},"preview":"{\\"query\\":\\"向量检索\\"}"}\n\n',
+      'data: {"type":"agent","event":"tool_result","tool":"kb_search","preview":"命中 3 条：…"}\n\n',
+      'data: {"type":"agent","event":"tool_call","tool":"read_url","args":{"url":"https://example.com"}}\n\n',
+    ]));
+    expect(events).toEqual([
+      {
+        type: "agent",
+        event: "tool_call",
+        tool: "kb_search",
+        args: { query: "向量检索" },
+        preview: '{"query":"向量检索"}',
+      },
+      {
+        type: "agent",
+        event: "tool_result",
+        tool: "kb_search",
+        preview: "命中 3 条：…",
+      },
+      {
+        type: "agent",
+        event: "tool_call",
+        tool: "read_url",
+        args: { url: "https://example.com" },
+      },
+    ]);
+  });
+
   it("解析 error 事件", async () => {
     const events = await collect(streamFrom([
       'data: {"type":"error","message":"未配置 LLM"}\n\n',

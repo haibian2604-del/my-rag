@@ -12,6 +12,7 @@ Create Date: 2026-09-07 11:00:00.000000
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
@@ -23,7 +24,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column('messages', sa.Column('trace', sa.JSON(), nullable=True))
+    op.add_column('messages', sa.Column('trace', postgresql.JSONB(astext_type=sa.Text()), nullable=True))
 
 
 def downgrade() -> None:

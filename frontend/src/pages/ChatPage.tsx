@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, del, get, post, put, type Workspace } from "../api/client";
 import { parseSSE, type Citation, type SSEEvent } from "../api/sse";
-import MessageBubble, { type ChatMessage } from "../components/MessageBubble";
+import MessageBubble, { type ChatMessage, type ToolStep } from "../components/MessageBubble";
 
 interface Conversation {
   id: number;
@@ -41,6 +41,9 @@ export default function ChatPage({
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [followups, setFollowups] = useState<string[]>([]);
   const [docSummary, setDocSummary] = useState<{ ready: number; total: number } | null>(null);
+  const [agentAvailable, setAgentAvailable] = useState(false);
+  // Agent 模式为会话级开关：仅当后端探测到 LLM 支持工具调用时才展示
+  const [agentMode, setAgentMode] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -53,7 +56,13 @@ export default function ChatPage({
 
   const loadMessages = async (id: number) => {
     const rows = await get<
-      { id: number; role: string; content: string; citations: Citation[] | null }[]
+      {
+        id: number;
+        role: string;
+        content: string;
+        citations: Citation[] | null;
+        trace: ToolStep[] | null;
+      }[]
     >(`/api/conversations/${id}/messages`);
     setMessages(
       rows.map((m) => ({
@@ -61,6 +70,7 @@ export default function ChatPage({
         role: m.role === "user" ? "user" : "assistant",
         content: m.content,
         citations: m.citations ?? undefined,
+        trace: m.trace ?? undefined,
       })),
     );
   };
@@ -105,6 +115,13 @@ export default function ChatPage({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // 挂载时探测 Agent 能力：后端启动时对默认 LLM 做过最小 tools 请求探测
+  useEffect(() => {
+    get<{ available: boolean }>("/api/agent/capability")
+      .then((r) => setAgentAvailable(Boolean(r.available)))
+      .catch(() => setAgentAvailable(false));
+  }, []);
 
   // 空状态引导：显示可问答的文档数 + 建议问题（生成失败静默不显示，回退默认引导问题）
   useEffect(() => {
@@ -194,7 +211,7 @@ export default function ChatPage({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, mode: agentMode ? "agent" : "rag" }),
         signal: abortRef.current.signal,
       });
       if (!resp.ok || !resp.body) {
@@ -221,6 +238,26 @@ export default function ChatPage({
               ...copy[copy.length - 1],
               content: copy[copy.length - 1].content + ev.text,
             };
+            return copy;
+          });
+        } else if (ev.type === "agent") {
+          // 工具时间线实时累积到最后一条回答的 trace 上
+          setMessages((prev) => {
+            const copy = [...prev];
+            const last = copy[copy.length - 1];
+            if (!last || last.role !== "assistant") return copy;
+            const trace = [...(last.trace ?? [])];
+            if (ev.event === "tool_call") {
+              trace.push({ tool: ev.tool, args: ev.args });
+            } else {
+              // tool_result：回填最近一次同名调用的 preview（找不到则单独成条）
+              const idx = trace.findLastIndex(
+                (s) => s.tool === ev.tool && s.preview === undefined,
+              );
+              if (idx >= 0) trace[idx] = { ...trace[idx], preview: ev.preview };
+              else trace.push({ tool: ev.tool, preview: ev.preview });
+            }
+            copy[copy.length - 1] = { ...last, trace };
             return copy;
           });
         } else if (ev.type === "error") {
@@ -363,8 +400,12 @@ export default function ChatPage({
                 )}
               </div>
             )}
-            {messages.map((m) => (
-              <MessageBubble key={m.id} message={m} />
+            {messages.map((m, i) => (
+              <MessageBubble
+                key={m.id}
+                message={m}
+                traceLive={asking && i === messages.length - 1}
+              />
             ))}
             {!asking && followups.length > 0 && (
               <div className="flex flex-col items-start gap-1.5">
@@ -401,6 +442,20 @@ export default function ChatPage({
           }}
         >
           <div className="mx-auto flex max-w-[76ch] items-end gap-2">
+            {agentAvailable && (
+              <label
+                className="flex shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-md border border-line bg-card px-2.5 py-2 text-xs text-faint transition-colors hover:border-iblue has-[:checked]:border-iblue has-[:checked]:bg-iblue-soft has-[:checked]:text-iblue"
+                title="开启后由 Agent 自动检索知识库、抓取网页来回答"
+              >
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 accent-[var(--color-iblue)]"
+                  checked={agentMode}
+                  onChange={(e) => setAgentMode(e.target.checked)}
+                />
+                Agent
+              </label>
+            )}
             <textarea
               ref={taRef}
               rows={1}
