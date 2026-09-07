@@ -32,12 +32,11 @@ mcp = FastMCP("zhifu")
 
 def _resolve_workspace_id(s, workspace_id: int | None) -> int:
     """workspace_id 缺省时：单工作区自动选中，多工作区报可读错误列出可选 id。"""
-    workspaces = s.execute(sa_select(Workspace).order_by(Workspace.id)).scalars().all()
     if workspace_id is not None:
-        for w in workspaces:
-            if w.id == workspace_id:
-                return workspace_id
-        raise ToolError(f"工作区不存在：workspace_id={workspace_id}")
+        if not s.get(Workspace, workspace_id):
+            raise ToolError(f"工作区不存在：workspace_id={workspace_id}")
+        return workspace_id
+    workspaces = s.execute(sa_select(Workspace).order_by(Workspace.id)).scalars().all()
     if not workspaces:
         raise ToolError("知识库中还没有任何工作区")
     if len(workspaces) == 1:
@@ -107,10 +106,10 @@ async def ask(question: str, workspace_id: int | None = None) -> dict:
 async def list_documents(workspace_id: int, status: str | None = None) -> list[dict]:
     """列出指定工作区下的文档（可按 status 过滤，如 ready/failed/pending）。"""
     with SessionLocal() as s:
-        _resolve_workspace_id(s, workspace_id)  # 校验工作区存在
+        ws_id = _resolve_workspace_id(s, workspace_id)  # 校验工作区存在
         stmt = (
             sa_select(Document)
-            .where(Document.workspace_id == workspace_id)
+            .where(Document.workspace_id == ws_id)
             .order_by(Document.id)
         )
         if status:

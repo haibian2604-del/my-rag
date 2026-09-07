@@ -6,7 +6,6 @@ from app.models.entities import AppConfig, Chunk, Document
 from app.services.chat.llm_util import LLM_UTIL_TIMEOUT, llm_complete, parse_json_list
 from app.services.chat.service import get_llm_or_raise
 
-SUGGESTION_TIMEOUT = LLM_UTIL_TIMEOUT
 MAX_SUGGESTIONS = 3
 MAX_SAMPLE_CHUNKS = 5
 
@@ -26,11 +25,6 @@ FOLLOWUPS_PROMPT = (
 FOLLOWUP_ANSWER_CHARS = 1500
 
 
-def _fingerprint(doc_count: int, max_doc_id: int) -> str:
-    """缓存指纹：ready 文档数量 + 最大文档 id，文档增删即失效。"""
-    return f"{doc_count}:{max_doc_id}"
-
-
 async def get_suggestions(ws_id: int) -> list[str]:
     """工作区建议问题：无文档 → 空；有缓存且指纹命中 → 直接返回；否则采样父块调 LLM 生成。
 
@@ -46,7 +40,8 @@ async def get_suggestions(ws_id: int) -> list[str]:
         max_doc_id = s.execute(
             select(func.max(Document.id)).where(Document.workspace_id == ws_id)
         ).scalar_one() or 0
-        fp = _fingerprint(doc_count, max_doc_id)
+        # 缓存指纹：ready 文档数量 + 最大文档 id，文档增删即失效
+        fp = f"{doc_count}:{max_doc_id}"
         cached = s.get(AppConfig, f"suggestions:{ws_id}")
         if cached and (cached.value or {}).get("fingerprint") == fp:
             return list((cached.value or {}).get("questions", []))
@@ -68,7 +63,6 @@ async def get_suggestions(ws_id: int) -> list[str]:
     context = "\n\n".join(c[:500] for c in contents)
     text = await llm_complete(
         llm, [{"role": "user", "content": SUGGESTIONS_PROMPT.format(context=context)}],
-        timeout=SUGGESTION_TIMEOUT,
     )
     questions = parse_json_list(text)[:MAX_SUGGESTIONS]
     if not questions:

@@ -8,7 +8,6 @@ export default function ConfirmDialog({
   confirmText = "确定",
   cancelText = "取消",
   danger = false,
-  busy = false,
   onConfirm,
   onCancel,
 }: {
@@ -18,7 +17,6 @@ export default function ConfirmDialog({
   confirmText?: string;
   cancelText?: string;
   danger?: boolean;
-  busy?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -52,14 +50,13 @@ export default function ConfirmDialog({
         <h3 className="font-display text-base">{title}</h3>
         <p className="mt-2 text-sm leading-6 text-faint">{message}</p>
         <div className="mt-4 flex items-center justify-end gap-2">
-          <button className="btn-ghost" onClick={onCancel} disabled={busy}>
+          <button className="btn-ghost" onClick={onCancel}>
             {cancelText}
           </button>
           <button
             ref={confirmRef}
             className={danger ? "btn-ghost text-seal" : "btn-primary"}
             onClick={onConfirm}
-            disabled={busy}
           >
             {confirmText}
           </button>

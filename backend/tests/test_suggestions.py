@@ -104,7 +104,6 @@ def test_suggestions_llm_failure_degrades_empty(client):
 
 def test_suggestions_cache_fingerprint_hit(client):
     """缓存指纹命中（文档数量+最大 id 未变）→ 直接返回缓存，不再调 LLM（此处连 LLM 都未配置）。"""
-    from app.services.chat.suggestions import _fingerprint
     with SessionLocal() as s:
         ws = Workspace(name=f"ws-{uuid4()}")
         s.add(ws)
@@ -119,7 +118,7 @@ def test_suggestions_cache_fingerprint_hit(client):
             select(func.max(Document.id)).where(Document.workspace_id == wid)
         ).scalar_one()
         s.merge(AppConfig(key=f"suggestions:{wid}", value={
-            "fingerprint": _fingerprint(doc_count, max_doc_id),
+            "fingerprint": f"{doc_count}:{max_doc_id}",
             "questions": ["缓存的问题？"],
         }))
         s.commit()
