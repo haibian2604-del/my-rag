@@ -80,6 +80,8 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(20))  # user|assistant
     content: Mapped[str] = mapped_column(Text)
     citations: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # agent 模式的工具调用时间线（[{tool, args, preview}]）；RAG 模式为 NULL
+    trace: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

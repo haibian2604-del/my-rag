@@ -11,7 +11,15 @@ export type SSEEvent =
   | { type: "delta"; text: string }
   | { type: "stage"; stage: "retrieving" | "reranking" | "generating" }
   | { type: "done"; followups?: string[] }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  // agent 模式工具时间线事件（tool_call 带参数 args；tool_result 带结果预览 preview）
+  | {
+      type: "agent";
+      event: "tool_call" | "tool_result";
+      tool: string;
+      args?: unknown;
+      preview?: string;
+    };
 
 export async function* parseSSE(
   body: ReadableStream<Uint8Array>,

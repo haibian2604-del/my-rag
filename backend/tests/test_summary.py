@@ -66,7 +66,8 @@ def test_migration_add_and_drop_summary_column():
     cfg = Config("alembic.ini")
     cols = lambda: {c["name"] for c in sa_inspect(engine).get_columns("documents")}
     assert "summary" in cols()  # 当前 head 应已含 summary 列
-    command.downgrade(cfg, "-1")
+    # 显式降到 summary 迁移的上一版 e7f8a9b0c1d2（head 上可能有更新的迁移，-1 不再指向它）
+    command.downgrade(cfg, "e7f8a9b0c1d2")
     assert "summary" not in cols()
     command.upgrade(cfg, "head")
     assert "summary" in cols()

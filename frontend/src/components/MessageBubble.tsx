@@ -1,15 +1,27 @@
 import { renderMarkdown } from "../api/markdown";
 import { CitationCard, type Citation } from "./CitationCard";
+import { ToolTimeline, type ToolStep } from "./ToolTimeline";
+
+export type { ToolStep };
 
 export interface ChatMessage {
   id: number | string;
   role: "user" | "assistant";
   content: string;
   citations?: Citation[];
+  /** agent 模式的工具调用时间线（实时累积或历史回放），无则为 undefined */
+  trace?: ToolStep[];
   error?: string;
 }
 
-export default function MessageBubble({ message }: { message: ChatMessage }) {
+export default function MessageBubble({
+  message,
+  traceLive = false,
+}: {
+  message: ChatMessage;
+  /** 正在流式生成中：时间线默认展开，跟随工具事件实时累积 */
+  traceLive?: boolean;
+}) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
@@ -22,6 +34,10 @@ export default function MessageBubble({ message }: { message: ChatMessage }) {
 
   return (
     <div className="max-w-[72ch]">
+      {/* agent 工具时间线：实时累积时默认展开，历史回放默认折叠 */}
+      {message.trace && message.trace.length > 0 && (
+        <ToolTimeline steps={message.trace} defaultOpen={traceLive} />
+      )}
       {/* assistant 回答不用气泡，按阅读行长排成正文 */}
       <div
         className="md"
