@@ -11,6 +11,15 @@ class OpenAICompatLLM:
         self.api_key = api_key
         self.timeout = timeout
 
+    async def complete(self, messages: list[dict], timeout: float | None = None, **params) -> str:
+        """非流式一次性生成：整体等待响应，返回完整文本（供建议问题/摘要/追问等复用）。"""
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        payload = {"model": self.model, "messages": messages, "stream": False, **params}
+        async with httpx.AsyncClient(timeout=timeout or self.timeout) as client:
+            resp = await client.post(f"{self.base_url}/chat/completions", json=payload, headers=headers)
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"].get("content") or ""
+
     async def stream_chat(self, messages: list[dict], **params) -> AsyncIterator[str]:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         payload = {"model": self.model, "messages": messages, "stream": True, **params}
