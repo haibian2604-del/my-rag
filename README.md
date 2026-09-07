@@ -13,6 +13,45 @@
 - **多工作区**：不同知识域相互隔离，删除工作区时其文档磁盘文件一并回收；工作区级检索参数（Top K / 相似度阈值 / 上下文上限 / 混合检索 / 重排）
 - **账号登录**：默认无账号时首次访问需创建管理员账号；之后账号密码登录，凭据以 JWT Cookie 保存
 - **数据备份**：`scripts/backup.sh` 一键导出数据库与文档快照，`scripts/restore.sh` 配合完成恢复（用法见 `scripts/README.md`）
+- **MCP 服务**：外部 Agent（Claude Code、Cursor 等）经 Streamable HTTP + API Key 连接知识库（详见下方「MCP 服务」）
+
+## MCP 服务
+
+内置 MCP（Model Context Protocol）服务器，端点 `http://<host>:8001/mcp`（Streamable HTTP），使用 Bearer API Key 认证。所有工具均为只读，不会修改知识库内容。
+
+### 工具清单
+
+| 工具 | 参数 | 说明 |
+|---|---|---|
+| `list_workspaces` | 无 | 列出全部工作区（id / 名称 / 描述） |
+| `search` | `query`，`workspace_id?`，`top_k?`（默认 5） | 混合检索知识库，返回命中段落与引用信息 |
+| `ask` | `question`，`workspace_id?` | 基于知识库生成带引用的回答 |
+| `list_documents` | `workspace_id`，`status?` | 列出工作区内的文档（可按状态过滤） |
+| `get_document` | `doc_id` | 查看单个文档的详情（元信息与内容） |
+
+> 有多个工作区时，`search` / `ask` 必须显式传入 `workspace_id`（可先用 `list_workspaces` 查询）；只有单个工作区时可省略。
+
+### 生成 API Key
+
+在 Web 界面「设置 → API 密钥」中创建：输入名称点击「创建密钥」，明文密钥（`zk-` 开头）只展示一次，请立即复制保存；之后可在列表中随时吊销。
+
+### 客户端配置
+
+以 Claude Code 为例，在 MCP 配置中加入：
+
+```json
+{
+  "mcpServers": {
+    "zhifu": {
+      "type": "http",
+      "url": "http://<host>:8001/mcp",
+      "headers": { "Authorization": "Bearer zk-xxxxxxxx" }
+    }
+  }
+}
+```
+
+Docker Compose 部署时应用经 `http://<host>:9000` 对外暴露，MCP 端点即 `http://<host>:9000/mcp`（容器内同一服务，无需额外映射端口）。API Key 等同于知识库完整读取权限，请勿将 9000 端口或密钥暴露到公网。
 
 ## 技术栈
 
@@ -83,6 +122,7 @@ docker compose up -d --build
 - [x] M4：HNSW 向量索引、检索阶段进度（SSE stage）、父子分块（子块检索 / 父块上下文）、PDF 表格转 Markdown 与扫描件识别
 - [x] M5：管理与体验增强（建议问题与追问、文档自动摘要与预览、e2e 答案质量评测、FAQ 知识库模式）
 - [x] M6：ReAct Agent 问答模式（PydanticAI；会话级开关、kb_search / read_url 工具、轮数 / 截断 / 超时护栏、capability 探测）
+- [x] MCP 服务：外部 Agent 经 Streamable HTTP + API Key 连接知识库（fastmcp，五个只读工具）
 
 ## 混合检索说明
 
