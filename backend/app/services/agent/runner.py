@@ -180,6 +180,7 @@ async def agent_stream(
                 role="assistant",
                 content=content,
                 citations=deps.citations or None,
+                trace=deps.trace or None,
             ))
             s.commit()
         yield _sse({"type": "citations", "items": deps.citations})

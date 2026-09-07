@@ -1,14 +1,15 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from app.api.deps import get_or_404
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 
+from app.api.deps import get_or_404
 from app.core.auth import require_auth
 from app.core.db import SessionLocal
 from app.models.entities import Conversation, Message, Workspace
+from app.services.agent.runner import agent_stream
 from app.services.chat.service import ask_stream
 from app.services.ingestion.pipeline import get_default_provider
 
@@ -40,10 +41,12 @@ class MessageOut(BaseModel):
     role: str
     content: str
     citations: list | None = None
+    trace: list | None = None  # agent 模式的工具调用时间线（RAG 模式为 NULL）
 
 
 class AskIn(BaseModel):
     question: str
+    mode: str = "rag"  # rag（默认，零行为变化）| agent（ReAct 工具问答）
 
 
 @router.post("/workspaces/{ws_id}/conversations", response_model=ConversationOut, status_code=201)
@@ -97,14 +100,19 @@ def delete_conversation(conv_id: int):
 
 @router.post("/conversations/{conv_id}/ask")
 def ask(conv_id: int, body: AskIn):
+    if body.mode not in ("rag", "agent"):
+        raise HTTPException(status_code=400, detail="mode 仅支持 rag 或 agent")
     with SessionLocal() as s:
         get_or_404(s, Conversation, conv_id, "会话不存在")
         try:
             get_default_provider(s, "llm")
         except RuntimeError:
             raise HTTPException(status_code=400, detail="未配置 LLM 模型") from None
+    # 按 mode 分流：agent 走 PydanticAI ReAct 运行器；rag 保持原链路零行为变化
+    stream = (agent_stream(conv_id, body.question) if body.mode == "agent"
+              else ask_stream(conv_id, body.question))
     return StreamingResponse(
-        ask_stream(conv_id, body.question),
+        stream,
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

@@ -202,3 +202,46 @@ async def test_conversation_not_found():
     events = [e async for e in runner_mod.agent_stream(999999999, "hi", model=TestModel())]
     parsed = parse_sse(events)
     assert parsed[0]["type"] == "error" and "会话不存在" in parsed[0]["message"]
+
+
+async def test_agent_trace_persisted_and_listed(seed_agent_data, client):
+    """agent 模式回答落库带 trace（工具时间线），历史消息接口带出 trace 字段。"""
+    events = [e async for e in runner_mod.agent_stream(
+        seed_agent_data["conv_id"], QUERY, model=kb_then_text_model())]
+    parsed = parse_sse(events)
+    assert parsed[-1]["type"] == "done"
+
+    from fastapi.testclient import TestClient  # noqa: F401 — client fixture 提供
+    resp = client.get(f"/api/conversations/{seed_agent_data['conv_id']}/messages")
+    assert resp.status_code == 200
+    msgs = resp.json()
+    assistant = [m for m in msgs if m["role"] == "assistant"]
+    assert assistant and assistant[0]["trace"], "assistant 消息应带工具时间线 trace"
+    trace = assistant[0]["trace"]
+    assert trace[0]["tool"] == "kb_search"
+    assert trace[0]["args"] == {"query": QUERY}
+    assert trace[0]["preview"]
+    # trace 与 citations 写在同一条 assistant 消息上
+    assert assistant[0]["citations"][0]["filename"] == "refund.md"
+
+
+async def test_read_url_no_document_row():
+    """read_url 轻量抓取：不再产生 Document 行/落盘文件（MockTransport 模拟外网页面）。"""
+    import httpx
+
+    html = ("<html><head><title>政策页</title></head>"
+            "<body><main><p>退款政策内容：7 天可退。</p></main></body></html>").encode()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=html, headers={"content-type": "text/html"})
+
+    with SessionLocal() as s:
+        before = s.execute(select(Document.id)).scalars().all()
+
+    out = await read_url_impl(
+        "https://example.com/policy", transport=httpx.MockTransport(handler))
+    assert "7 天可退" in out and len(out) <= 2000
+
+    with SessionLocal() as s:
+        after = s.execute(select(Document.id)).scalars().all()
+    assert after == before, "read_url 不应产生新的 Document 行"
