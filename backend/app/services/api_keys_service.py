@@ -3,11 +3,11 @@
 安全约定：key 明文绝不入库（仅 bcrypt 哈希）、绝不写日志，
 只在 generate 的返回值中出现一次（由创建响应返回给用户）。
 """
+import logging
 import secrets
-
-import bcrypt
 from datetime import UTC, datetime
 
+import bcrypt
 from sqlalchemy import select
 
 from app.core.auth import hash_password
@@ -15,6 +15,8 @@ from app.core.db import SessionLocal
 from app.models.entities import ApiKey
 
 KEY_PREFIX_TAG = "zk-"  # 明文 key 固定前缀
+
+logger = logging.getLogger(__name__)
 
 
 def _new_raw_key() -> str:
@@ -58,5 +60,6 @@ def touch(key_id: int) -> None:
             if row:
                 row.last_used_at = datetime.now(UTC)
                 s.commit()
-    except Exception:  # pragma: no cover - 记录使用时间失败不应阻断主链路
-        pass
+    except Exception as e:  # noqa: BLE001 · pragma: no cover - 记录使用时间失败不应阻断主链路
+        # 只记录异常信息，绝不输出 key 明文或哈希
+        logger.warning("更新 API key last_used_at 失败: %s", e)

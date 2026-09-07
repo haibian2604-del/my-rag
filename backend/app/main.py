@@ -6,6 +6,7 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastmcp.utilities.lifespan import combine_lifespans
 
 from app.api.agent import AGENT_CAPABILITY_KEY
 from app.api.agent import router as agent_router
@@ -19,6 +20,7 @@ from app.api.workspaces import router as workspaces_router
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.models.entities import AppConfig
+from app.services.mcp_server import BearerAuthMiddleware, mcp_http_app
 
 logging.basicConfig(level=logging.INFO)
 
@@ -89,7 +91,13 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="my_rag", docs_url=None, redoc_url=None, lifespan=lifespan)
+    # lifespan 接线（Spec 指定）：fastmcp 的 combine_lifespans 把主应用
+    # （recover_interrupted 等）与 MCP 会话管理器（StreamableHTTPSessionManager）
+    # 合并为单一 ASGI lifespan，先后进入/退出，互不抢夺。
+    combined_lifespan = combine_lifespans(lifespan, mcp_http_app.lifespan)
+    app = FastAPI(title="my_rag", docs_url=None, redoc_url=None, lifespan=combined_lifespan)
+    # Bearer 中间件仅对 /mcp 路径生效（内部判断），其余路由零行为变化
+    app.add_middleware(BearerAuthMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
@@ -109,6 +117,9 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     def health() -> dict:
         return {"status": "ok"}
+
+    # MCP 子应用（Streamable HTTP）：最终端点 URL = /mcp
+    app.mount("/mcp", mcp_http_app)
 
     # SPA 托管（容器内有前端构建产物时生效）
     from app.api.spa import mount_spa
