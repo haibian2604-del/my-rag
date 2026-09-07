@@ -148,8 +148,8 @@ export default function App() {
     ));
 
   return (
-    <div className="flex h-screen">
-      <aside className="flex w-44 shrink-0 flex-col border-r border-line bg-card max-md:hidden">
+    <div className="flex h-screen overflow-hidden">
+      <aside className="sticky top-0 flex h-screen shrink-0 flex-col overflow-hidden border-r border-line bg-card max-md:hidden">
         <div className="flex items-center gap-2.5 px-4 pb-5 pt-5">
           <BrandMark />
           <div>

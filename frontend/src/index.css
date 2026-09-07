@@ -24,6 +24,7 @@
   }
   body {
     @apply bg-paper text-ink antialiased;
+    overflow: hidden; /* 应用为单屏布局：页面级不滚动，滚动只发生在内部区域（消息区/会话列表等） */
   }
   :focus-visible {
     outline: 2px solid var(--color-iblue);
