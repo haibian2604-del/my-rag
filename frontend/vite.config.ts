@@ -8,6 +8,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': 'http://localhost:8001',
+      '/mcp': 'http://localhost:8001',
     },
   },
 })

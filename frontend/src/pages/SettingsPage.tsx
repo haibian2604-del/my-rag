@@ -29,6 +29,7 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
   const [wsMsg, setWsMsg] = useState("");
   const [mcpEnabled, setMcpEnabled] = useState<boolean | null>(null);
   const [mcpMsg, setMcpMsg] = useState("");
+  const mcpUrl = `${window.location.origin}/mcp`;
 
   const refreshProviders = async () => {
     setProviders(await get<Provider[]>("/api/settings/providers"));
@@ -85,8 +86,8 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
   const activeKind = KINDS.find((k) => k.key === tab)!;
 
   const toggleMcp = async () => {
-    if (mcpEnabled === null) return;
-    const next = !mcpEnabled;
+    // 状态未知（如后端未重启）时按「当前关闭」处理，第一次点击即尝试开启
+    const next = !(mcpEnabled ?? false);
     if (next && !window.confirm(
       "开启后任何能访问本服务端口的 MCP 客户端都将可以直接连接并读取知识库（无需密钥）。请确保仅在可信的内网环境使用。确定开启？"
     )) return;
@@ -96,7 +97,16 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
       setMcpEnabled(r.enabled);
       setMcpMsg(r.enabled ? "MCP 服务已开启" : "MCP 服务已关闭");
     } catch (e) {
-      setMcpMsg(e instanceof ApiError ? e.message : "保存失败");
+      setMcpMsg(e instanceof ApiError ? e.message : "操作失败：请确认后端已更新并重启");
+    }
+  };
+
+  const copyMcpUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(mcpUrl);
+      setMcpMsg("端点地址已复制");
+    } catch {
+      setMcpMsg("复制失败，请手动选中地址复制");
     }
   };
 
@@ -274,17 +284,27 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
             aria-checked={mcpEnabled ?? false}
             className={`relative h-6 w-11 rounded-full transition-colors ${mcpEnabled ? "bg-seal" : "bg-line"}`}
             onClick={() => void toggleMcp()}
-            disabled={mcpEnabled === null}
           >
             <span
               className={`absolute top-0.5 h-5 w-5 rounded-full bg-card shadow transition-all ${mcpEnabled ? "left-[22px]" : "left-0.5"}`}
             />
           </button>
-          <span className="text-sm">{mcpEnabled ? "已开启" : "已关闭"}</span>
+          <span className="text-sm">
+            {mcpEnabled === null ? "状态获取失败（请确认后端已更新并重启）" : mcpEnabled ? "已开启" : "已关闭"}
+          </span>
         </div>
         <p className="mt-2 text-xs leading-5 text-faint">
-          开启即代表允许任何能访问本服务端口的客户端读取知识库，请仅在可信的内网环境开启。客户端配置见 README「MCP 服务」。
+          开启即代表允许任何能访问本服务端口的客户端读取知识库，请仅在可信的内网环境开启。
         </p>
+        {mcpEnabled && (
+          <div className="panel mt-3 flex items-center gap-2 p-2.5 text-sm">
+            <span className="text-faint">MCP 端点</span>
+            <code className="min-w-0 flex-1 truncate font-mono text-[13px]">{mcpUrl}</code>
+            <button className="btn-ghost shrink-0" onClick={() => void copyMcpUrl()}>
+              复制
+            </button>
+          </div>
+        )}
         {mcpMsg && <p className="mt-2 text-sm text-faint">{mcpMsg}</p>}
       </section>
       </div>
