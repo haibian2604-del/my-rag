@@ -1,22 +1,22 @@
-{"query": "每年有多少天带薪年假？", "expect_keywords": ["15天", "15 天"]}
-{"query": "请年假需要提前多久申请？", "expect_keywords": ["3 个工作日", "3个工作日"]}
-{"query": "年假没有休完怎么办？", "expect_keywords": ["3 月底", "3月底"]}
-{"query": "病假工资怎么发？", "expect_keywords": ["80%"]}
-{"query": "请病假需要什么证明？", "expect_keywords": ["医院"]}
-{"query": "周末加班怎么折算调休？", "expect_keywords": ["2 倍", "2倍"]}
-{"query": "迟到会怎么处理？", "expect_keywords": ["50 元", "50元"]}
-{"query": "试用期员工有年假吗？", "expect_keywords": ["试用期"]}
-{"query": "出差坐高铁能坐什么座位？", "expect_keywords": ["二等座"]}
-{"query": "去北京出差住宿费上限是多少？", "expect_keywords": ["600 元", "600元"]}
-{"query": "省会城市的住宿标准是多少？", "expect_keywords": ["450 元", "450元"]}
-{"query": "出差有餐补吗？标准是多少？", "expect_keywords": ["100 元", "100元"]}
-{"query": "报销要在返程后多久内提交？", "expect_keywords": ["10 个工作日", "10个工作日"]}
-{"query": "机票发票丢了还能报销吗？", "expect_keywords": ["乘机记录"]}
-{"query": "超过多少报销金额走对公转账？", "expect_keywords": ["5000"]}
-{"query": "公司密码多久要换一次？", "expect_keywords": ["90 天", "90天"]}
-{"query": "密码有什么复杂度要求？", "expect_keywords": ["12 位", "12位"]}
-{"query": "导出机密数据需要谁审批？", "expect_keywords": ["双重审批"]}
-{"query": "办公电脑离开工位要注意什么？", "expect_keywords": ["锁屏"]}
-{"query": "离职时账号权限怎么处理？", "expect_keywords": ["回收"]}
-{"query": "一线城市住宿报销上限是多少？", "expect_keywords": ["800"]}
-{"query": "报销住宿超上限需要谁审批？", "expect_keywords": ["部门主管"]}
+{"query": "每年有多少天带薪年假？", "expect_keywords": ["15天", "15 天"], "reference": "正式员工每年享有 15 天带薪年假。"}
+{"query": "请年假需要提前多久申请？", "expect_keywords": ["3 个工作日", "3个工作日"], "reference": "年假需提前 3 个工作日在 OA 系统提交申请。"}
+{"query": "年假没有休完怎么办？", "expect_keywords": ["3 月底", "3月底"], "reference": "当年未休完的年假可顺延至次年 3 月底，逾期自动清零，不予折现。"}
+{"query": "病假工资怎么发？", "expect_keywords": ["80%"], "reference": "病假期间工资按基本工资的 80% 发放，剩余部分计入年终考核基数。"}
+{"query": "请病假需要什么证明？", "expect_keywords": ["医院"], "reference": "病假需要提供二级甲等以上医院开具的证明。"}
+{"query": "周末加班怎么折算调休？", "expect_keywords": ["2 倍", "2倍"], "reference": "周末加班按 2 倍折算调休。"}
+{"query": "迟到会怎么处理？", "expect_keywords": ["50 元", "50元"], "reference": "每月允许 2 次 15 分钟以内的宽限迟到，超过 3 次每次扣款 50 元。"}
+{"query": "试用期员工有年假吗？", "expect_keywords": ["试用期"], "reference": "试用期员工不享有年假，转正后按月折算当年额度。"}
+{"query": "出差坐高铁能坐什么座位？", "expect_keywords": ["二等座"], "reference": "高铁与动车一律乘坐二等座，单程 4 小时以上行程可说明后选一等座。"}
+{"query": "去北京出差住宿费上限是多少？", "expect_keywords": ["600 元", "600元"], "reference": "北京属一线城市，住宿费每晚 600 元上限。"}
+{"query": "省会城市的住宿标准是多少？", "expect_keywords": ["450 元", "450元"], "reference": "省会城市住宿费每晚 450 元上限。"}
+{"query": "出差有餐补吗？标准是多少？", "expect_keywords": ["100 元", "100元"], "reference": "出差期间餐补每天 100 元，无需提供发票；当天往返按半天 50 元计发。"}
+{"query": "报销要在返程后多久内提交？", "expect_keywords": ["10 个工作日", "10个工作日"], "reference": "差旅费用须在返程后 10 个工作日内提交报销。"}
+{"query": "机票发票丢了还能报销吗？", "expect_keywords": ["乘机记录"], "reference": "丢失发票的需提供乘机记录与水单并经财务总监签字后报销。"}
+{"query": "超过多少报销金额走对公转账？", "expect_keywords": ["5000"], "reference": "报销金额超过 5000 元的走对公转账，其余转入工资卡。"}
+{"query": "公司密码多久要换一次？", "expect_keywords": ["90 天", "90天"], "reference": "内部系统密码必须每 90 天更换一次。"}
+{"query": "密码有什么复杂度要求？", "expect_keywords": ["12 位", "12位"], "reference": "密码长度不少于 12 位，且包含大小写字母、数字与符号。"}
+{"query": "导出机密数据需要谁审批？", "expect_keywords": ["双重审批"], "reference": "导出机密级数据需要数据负责人与安全负责人双重审批。"}
+{"query": "办公电脑离开工位要注意什么？", "expect_keywords": ["锁屏"], "reference": "办公电脑离开工位需锁屏，并安装公司统一的安全客户端。"}
+{"query": "离职时账号权限怎么处理？", "expect_keywords": ["回收"], "reference": "员工离职当天由 IT 回收全部账号权限，上级确认资料完整交接。"}
+{"query": "一线城市住宿报销上限是多少？", "expect_keywords": ["800"], "reference": "一线城市（北京、上海、广州、深圳）住宿费每晚 600 元上限。"}
+{"query": "报销住宿超上限需要谁审批？", "expect_keywords": ["部门主管"], "reference": "住宿费超上限部分原则上由个人承担，因会议统一安排的凭会议通知据实报销，超支需部门主管确认。"}

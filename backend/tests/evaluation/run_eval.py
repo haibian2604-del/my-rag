@@ -5,10 +5,13 @@
     uv run python -m tests.evaluation.run_eval            # top_k=5
     uv run python -m tests.evaluation.run_eval --top-k 3
     uv run python -m tests.evaluation.run_eval --compare  # hybrid vs vector 对比
+    uv run python -m tests.evaluation.run_eval --e2e      # hybrid 检索 + LLM 生成回答评测
 
 流程：创建临时评测工作区 → 摄取 sample_docs/ 下的样例文档 → 逐条跑
 qa_set.jsonl 的查询 → 期望关键词（任一写法变体）出现在 top_k 任一 chunk 的
 正文中即算命中 → 输出每条结果与 recall@k、平均延迟。
+--e2e 在 hybrid 检索基础上真实调用 LLM 生成回答，计算关键词覆盖率与
+ROUGE-L F1（对比 qa_set 的 reference 参考答案）；未配置 LLM 直接退出。
 评测工作区默认用后即删（--keep 保留）。
 """
 import argparse
@@ -22,8 +25,77 @@ from sqlalchemy import select
 
 from app.core.db import SessionLocal
 from app.models.entities import Document, ProviderConfig, Workspace
+from app.services.chat.llm_util import llm_complete
+from app.services.chat.service import get_llm_or_raise
 from app.services.ingestion.pipeline import doc_file_path, ingest_document
 from app.services.retrieval.search import search
+
+from tests.evaluation.rougel import rouge_l_f1
+
+# e2e：拼入 prompt 的检索上下文每块截断长度与最多使用块数
+E2E_CHUNK_CHARS = 800
+E2E_MAX_CHUNKS = 5
+
+E2E_PROMPT = (
+    "你是企业知识库助手。请仅依据下面的资料片段用中文简洁回答用户问题，"
+    "资料中没有的信息不要编造。\n\n资料片段：\n{context}\n\n用户问题：{question}"
+)
+
+
+def get_e2e_llm_or_exit():
+    """读取默认 llm provider 构建非流式 LLM；未配置则退出并提示。"""
+    try:
+        with SessionLocal() as s:
+            return get_llm_or_raise(s)
+    except Exception:  # noqa: BLE001 — 未配置/构建失败统一给出可读提示
+        raise SystemExit("未配置 LLM：--e2e 需要默认 LLM 模型，请先在设置页配置")
+
+
+async def _answer_once(llm, ws_id: int, query: str, top_k: int) -> tuple[str, float]:
+    """hybrid 检索一次并调 LLM 生成回答，返回（回答, 检索延迟 ms）。"""
+    t0 = time.perf_counter()
+    found = await search(ws_id, query, top_k=top_k, hybrid=True)
+    dt = (time.perf_counter() - t0) * 1000
+    context = "\n\n".join(
+        h["content"][:E2E_CHUNK_CHARS] for h in found[:E2E_MAX_CHUNKS])
+    prompt = E2E_PROMPT.format(context=context, question=query)
+    # llm_complete 失败/超时返回 None，此处降级为空回答（ROUGE-L 记 0）
+    answer = (await llm_complete(llm, [{"role": "user", "content": prompt}])) or ""
+    return answer.strip(), dt
+
+
+def evaluate_e2e(llm, ws_id: int, queries: list[dict],
+                 top_k: int) -> tuple[list[bool], list[float], list[float]]:
+    """e2e 主流程：检索 + LLM 生成 → 每条算关键词命中（OR 语义）与 ROUGE-L F1。
+
+    返回（每条关键词是否命中, 每条 ROUGE-L F1, 每条端到端延迟 ms）。
+    """
+    hit_flags: list[bool] = []
+    rouges: list[float] = []
+    latencies: list[float] = []
+    for q in queries:
+        answer, dt = asyncio.run(_answer_once(llm, ws_id, q["query"], top_k))
+        latencies.append(dt)
+        # 关键词沿用 OR 语义：同一事实的多种写法任一出现在回答中即算命中
+        hit_flags.append(any(kw in answer for kw in q["expect_keywords"]))
+        rouges.append(rouge_l_f1(q.get("reference", ""), answer))
+    return hit_flags, rouges, latencies
+
+
+def print_e2e_report(queries: list[dict], top_k: int, hit_flags: list[bool],
+                     rouges: list[float], latencies: list[float]) -> None:
+    """逐条 ✓/✗ + 汇总（关键词覆盖率 % 与平均 ROUGE-L）。"""
+    for q, ok, f1 in zip(queries, hit_flags, rouges):
+        mark = "✓" if ok else "✗"
+        print(f"  {mark} {q['query']}  ROUGE-L={f1:.3f}")
+    coverage = sum(hit_flags) / len(queries)
+    avg_rouge = sum(rouges) / len(rouges)
+    print(f"\ne2e@{top_k}: 关键词覆盖率 {sum(hit_flags)}/{len(queries)} = {coverage:.0%}")
+    print(f"平均 ROUGE-L F1: {avg_rouge:.3f}")
+    print(f"平均端到端延迟: {sum(latencies) / len(latencies):.0f}ms")
+
+
+
 
 EVAL_DIR = Path(__file__).parent
 DOCS_DIR = EVAL_DIR / "sample_docs"
@@ -126,6 +198,8 @@ def main() -> None:
     parser.add_argument("--no-hybrid", action="store_true", help="关闭混合检索（仅向量召回）")
     parser.add_argument("--compare", action="store_true",
                         help="对比模式：同一工作区分别跑 hybrid 与纯向量检索")
+    parser.add_argument("--e2e", action="store_true",
+                        help="端到端模式：hybrid 检索 + LLM 生成回答，算关键词覆盖率与 ROUGE-L")
     args = parser.parse_args()
 
     with SessionLocal() as s:
@@ -135,6 +209,8 @@ def main() -> None:
         ).scalar_one_or_none()
     if not cfg:
         raise SystemExit("未配置嵌入模型：请先在设置页配置嵌入模型后再评测")
+    # e2e 需要真实 LLM，未配置在开工前直接退出（避免白跑摄取）
+    llm = get_e2e_llm_or_exit() if args.e2e else None
 
     ws_id = create_workspace()
     try:
@@ -170,6 +246,13 @@ def main() -> None:
             print(f"\nrecall@{args.top_k}: {hits}/{len(queries)} = {hits / len(queries):.0%}")
             print(f"平均检索延迟: {sum(latencies) / len(latencies):.0f}ms，"
                   f"最长 {max(latencies):.0f}ms")
+
+        if args.e2e:
+            # e2e 只对 hybrid 路跑，可与 --compare 并存
+            print("\n跑 e2e（hybrid 检索 + LLM 生成回答）…")
+            e2e_flags, rouges, e2e_lat = evaluate_e2e(llm, ws_id, queries, args.top_k)
+            print()
+            print_e2e_report(queries, args.top_k, e2e_flags, rouges, e2e_lat)
     finally:
         if not args.keep:
             delete_workspace(ws_id)

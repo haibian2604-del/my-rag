@@ -99,9 +99,14 @@ def list_documents(ws_id: int):
 
 
 def _read_preview(doc: Document) -> str:
-    """读原文文件前 500 字符作为预览；文件不存在/读取失败返回空串。"""
+    """读原文文件前 500 字符作为预览；文件不存在/读取失败返回空串。
+
+    截断读取前 2000 字节（而非全量读入），避免大文件只为取预览占用过多内存；
+    errors="ignore" 兜住截断落在多字节字符中间的情况。
+    """
     try:
-        text = doc_file_path(doc).read_bytes().decode("utf-8", errors="ignore")
+        with open(doc_file_path(doc), "rb") as f:
+            text = f.read(2000).decode("utf-8", errors="ignore")
     except OSError:
         return ""
     return text[:500]
