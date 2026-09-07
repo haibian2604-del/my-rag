@@ -139,6 +139,7 @@ export default function ChatPage({
   }, [workspace.id, messages.length]);
 
   const openConversation = async (id: number) => {
+    if (asking) return; // 请求进行中禁止切换会话，避免进行中的回答/trace 回填到错误会话
     onActiveChange(id);
     setError("");
     setFollowups([]);

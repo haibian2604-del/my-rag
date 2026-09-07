@@ -1,30 +1,17 @@
 """--e2e 端到端评测主流程测试：mock LLM 跑 evaluate_e2e / print_e2e_report。
 
-复用 test_eval_compare 的 seed 思路：手工插入 Chunk + ChunkEmbedding（fake
-向量）使 hybrid 检索稳定命中目标关键词；LLM 用带固定回复的 fake 对象替代，
-不发起真实请求。
+复用 test_eval_compare 的 seed 思路（fixture 在 evaluation/conftest.py 共享）：
+手工插入 Chunk + ChunkEmbedding（fake 向量）使 hybrid 检索稳定命中目标关键词；
+LLM 用带固定回复的 fake 对象替代，不发起真实请求。
 """
-import asyncio
-from uuid import uuid4
-
 import pytest
 
-from app.core.db import SessionLocal
-from app.models.entities import ProviderConfig, Workspace
-from app.providers.embedding.fake import FakeEmbedding
 from tests.evaluation.run_eval import (
     evaluate_e2e,
     get_e2e_llm_or_exit,
     print_e2e_report,
 )
-from tests.test_hybrid_search import (
-    OTHER_TEXTS,
-    QUERY,
-    TARGET_TEXT,
-    _make_chunk,
-    _make_doc,
-    _make_embedding,
-)
+from tests.test_hybrid_search import QUERY
 
 REFERENCE = "周末加班按 2 倍折算调休。"
 QUERIES = [{"query": QUERY, "expect_keywords": ["火山"], "reference": REFERENCE}]
@@ -40,29 +27,6 @@ class MockLLM:
         if self.reply is None:
             raise RuntimeError("模拟 LLM 故障")
         return self.reply
-
-
-@pytest.fixture
-def eval_seed():
-    fake = FakeEmbedding(dim=4)
-    vectors = asyncio.run(fake.embed([TARGET_TEXT] + OTHER_TEXTS))
-    with SessionLocal() as s:
-        ws = Workspace(name=f"evale2e-{uuid4()}")
-        emb_cfg = ProviderConfig(kind="embedding", provider="fake", base_url="",
-                                 model="fake", is_default=True, params={"dim": 4})
-        s.add_all([ws, emb_cfg])
-        s.flush()
-        docs = [_make_doc(s, ws.id, f"doc{i}.md") for i in range(3)]
-        chunks = [_make_chunk(s, docs[0], 0, TARGET_TEXT)]
-        for i, t in enumerate(OTHER_TEXTS):
-            chunks.append(_make_chunk(s, docs[i % 3], (i % 3) + 1, t))
-        for c, v in zip(chunks, vectors):
-            _make_embedding(s, c, "fake", v)
-        s.commit()
-        yield ws.id
-        s.delete(s.get(Workspace, ws.id))
-        s.delete(s.get(ProviderConfig, emb_cfg.id))
-        s.commit()
 
 
 def test_evaluate_e2e_with_mock_llm(eval_seed):

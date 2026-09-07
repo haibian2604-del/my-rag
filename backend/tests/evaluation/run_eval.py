@@ -6,12 +6,16 @@
     uv run python -m tests.evaluation.run_eval --top-k 3
     uv run python -m tests.evaluation.run_eval --compare  # hybrid vs vector 对比
     uv run python -m tests.evaluation.run_eval --e2e      # hybrid 检索 + LLM 生成回答评测
+    uv run python -m tests.evaluation.run_eval --agent    # rag vs agent 两模式对照评测
 
 流程：创建临时评测工作区 → 摄取 sample_docs/ 下的样例文档 → 逐条跑
 qa_set.jsonl 的查询 → 期望关键词（任一写法变体）出现在 top_k 任一 chunk 的
 正文中即算命中 → 输出每条结果与 recall@k、平均延迟。
 --e2e 在 hybrid 检索基础上真实调用 LLM 生成回答，计算关键词覆盖率与
 ROUGE-L F1（对比 qa_set 的 reference 参考答案）；未配置 LLM 直接退出。
+--agent 在 e2e 基础上再跑 Agent 模式（真实走 agent_stream 完整链路，含
+工具调用），输出 rag vs agent 的关键词覆盖率与平均 ROUGE-L 对照表；
+未配置 LLM 直接退出。
 评测工作区默认用后即删（--keep 保留）。
 """
 import argparse
@@ -24,7 +28,8 @@ from pathlib import Path
 from sqlalchemy import select
 
 from app.core.db import SessionLocal
-from app.models.entities import Document, ProviderConfig, Workspace
+from app.models.entities import Conversation, Document, ProviderConfig, Workspace
+from app.services.agent.runner import agent_stream
 from app.services.chat.llm_util import llm_complete
 from app.services.chat.service import get_llm_or_raise
 from app.services.ingestion.pipeline import doc_file_path, ingest_document
@@ -42,13 +47,16 @@ E2E_PROMPT = (
 )
 
 
-def get_e2e_llm_or_exit():
-    """读取默认 llm provider 构建非流式 LLM；未配置则退出并提示。"""
+def get_e2e_llm_or_exit(flag: str = "--e2e"):
+    """读取默认 llm provider 构建非流式 LLM；未配置则退出并提示。
+
+    --agent 与 --e2e 共用该校验（agent 链路同样依赖默认 LLM）。
+    """
     try:
         with SessionLocal() as s:
             return get_llm_or_raise(s)
     except Exception:  # noqa: BLE001 — 未配置/构建失败统一给出可读提示
-        raise SystemExit("未配置 LLM：--e2e 需要默认 LLM 模型，请先在设置页配置")
+        raise SystemExit(f"未配置 LLM：{flag} 需要默认 LLM 模型，请先在设置页配置")
 
 
 async def _answer_once(llm, ws_id: int, query: str, top_k: int) -> tuple[str, float]:
@@ -93,6 +101,67 @@ def print_e2e_report(queries: list[dict], top_k: int, hit_flags: list[bool],
     print(f"\ne2e@{top_k}: 关键词覆盖率 {sum(hit_flags)}/{len(queries)} = {coverage:.0%}")
     print(f"平均 ROUGE-L F1: {avg_rouge:.3f}")
     print(f"平均端到端延迟: {sum(latencies) / len(latencies):.0f}ms")
+
+
+async def _answer_once_agent(ws_id: int, query: str) -> tuple[str, float]:
+    """Agent 模式回答一次：在评测工作区建临时会话，真实走 agent_stream 完整链路。
+
+    每条查询单独建会话，避免上一条的历史污染本轮回答；会话随工作区级联清理。
+    返回（回答, 端到端延迟 ms）。
+    """
+    with SessionLocal() as s:
+        conv = Conversation(workspace_id=ws_id, title="eval-agent")
+        s.add(conv)
+        s.commit()
+        conv_id = conv.id
+    parts: list[str] = []
+    t0 = time.perf_counter()
+    async for raw in agent_stream(conv_id, query):
+        # agent_stream 产出 SSE 帧（data: {...}\n\n），解析出 delta 文本拼接
+        if not raw.startswith("data: "):
+            continue
+        payload = json.loads(raw.removeprefix("data: ").strip())
+        if payload.get("type") == "delta":
+            parts.append(payload["text"])
+    dt = (time.perf_counter() - t0) * 1000
+    return "".join(parts).strip(), dt
+
+
+def evaluate_agent(ws_id: int, queries: list[dict]) -> tuple[list[bool], list[float], list[float]]:
+    """agent 主流程：agent_stream 生成回答 → 每条算关键词命中（OR 语义）与 ROUGE-L。
+
+    与 evaluate_e2e 同一口径；agent_stream 内部异常已降级为 error 事件（回答为空，
+    该条记未命中 / ROUGE-L 0），不会抛出。返回（命中, ROUGE-L F1, 延迟 ms）。
+    """
+    hit_flags: list[bool] = []
+    rouges: list[float] = []
+    latencies: list[float] = []
+    for q in queries:
+        answer, dt = asyncio.run(_answer_once_agent(ws_id, q["query"]))
+        latencies.append(dt)
+        hit_flags.append(any(kw in answer for kw in q["expect_keywords"]))
+        rouges.append(rouge_l_f1(q.get("reference", ""), answer))
+    return hit_flags, rouges, latencies
+
+
+def print_agent_report(queries: list[dict], top_k: int,
+                       rag_flags: list[bool], rag_rouges: list[float],
+                       agent_flags: list[bool], agent_rouges: list[float],
+                       agent_lat: list[float]) -> None:
+    """rag vs agent 两模式对照表：逐条 ✓/✗ + 关键词覆盖率与平均 ROUGE-L 汇总。"""
+    print(f"{'查询':<42} rag    agent")
+    for q, rf, af in zip(queries, rag_flags, agent_flags):
+        print(f"  {truncate(q['query'], 38):<40} "
+              f"{'✓' if rf else '✗'}      {'✓' if af else '✗'}")
+    rag_cov = sum(rag_flags) / len(queries)
+    ag_cov = sum(agent_flags) / len(queries)
+    rag_avg = sum(rag_rouges) / len(rag_rouges)
+    ag_avg = sum(agent_rouges) / len(agent_rouges)
+    print(f"\nagent 对照@{top_k} 关键词覆盖率:  "
+          f"rag = {sum(rag_flags)}/{len(queries)} = {rag_cov:.0%}   "
+          f"agent = {sum(agent_flags)}/{len(queries)} = {ag_cov:.0%}")
+    print(f"平均 ROUGE-L F1:  rag = {rag_avg:.3f}   agent = {ag_avg:.3f}")
+    print(f"agent 平均端到端延迟: {sum(agent_lat) / len(agent_lat):.0f}ms")
 
 
 
@@ -200,6 +269,8 @@ def main() -> None:
                         help="对比模式：同一工作区分别跑 hybrid 与纯向量检索")
     parser.add_argument("--e2e", action="store_true",
                         help="端到端模式：hybrid 检索 + LLM 生成回答，算关键词覆盖率与 ROUGE-L")
+    parser.add_argument("--agent", action="store_true",
+                        help="Agent 对照模式：rag（e2e 链路）vs agent（agent_stream 完整链路）两模式评测")
     args = parser.parse_args()
 
     with SessionLocal() as s:
@@ -209,8 +280,9 @@ def main() -> None:
         ).scalar_one_or_none()
     if not cfg:
         raise SystemExit("未配置嵌入模型：请先在设置页配置嵌入模型后再评测")
-    # e2e 需要真实 LLM，未配置在开工前直接退出（避免白跑摄取）
-    llm = get_e2e_llm_or_exit() if args.e2e else None
+    # e2e / agent 需要真实 LLM，未配置在开工前直接退出（避免白跑摄取）
+    llm = get_e2e_llm_or_exit("--agent" if args.agent else "--e2e") \
+        if (args.e2e or args.agent) else None
 
     ws_id = create_workspace()
     try:
@@ -247,12 +319,19 @@ def main() -> None:
             print(f"平均检索延迟: {sum(latencies) / len(latencies):.0f}ms，"
                   f"最长 {max(latencies):.0f}ms")
 
-        if args.e2e:
-            # e2e 只对 hybrid 路跑，可与 --compare 并存
-            print("\n跑 e2e（hybrid 检索 + LLM 生成回答）…")
+        if args.e2e or args.agent:
+            # e2e 只对 hybrid 路跑，可与 --compare 并存；--agent 隐含 rag 侧生成对照
+            print("\n跑 rag e2e（hybrid 检索 + LLM 生成回答）…")
             e2e_flags, rouges, e2e_lat = evaluate_e2e(llm, ws_id, queries, args.top_k)
             print()
-            print_e2e_report(queries, args.top_k, e2e_flags, rouges, e2e_lat)
+            if args.agent:
+                print("跑 agent 模式（agent_stream 完整链路，含工具调用）…")
+                agent_flags, agent_rouges, agent_lat = evaluate_agent(ws_id, queries)
+                print()
+                print_agent_report(queries, args.top_k,
+                                   e2e_flags, rouges, agent_flags, agent_rouges, agent_lat)
+            else:
+                print_e2e_report(queries, args.top_k, e2e_flags, rouges, e2e_lat)
     finally:
         if not args.keep:
             delete_workspace(ws_id)

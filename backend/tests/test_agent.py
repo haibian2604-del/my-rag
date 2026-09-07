@@ -174,6 +174,23 @@ async def test_usage_limit_exceeded_finishes_with_error(seed_agent_data, monkeyp
     assert parsed[-1]["type"] == "done" and parsed[-1]["followups"] == []
 
 
+async def test_internal_error_not_leaked_to_client(seed_agent_data, monkeypatch):
+    """内部异常（含端点等敏感信息）→ error 事件只给固定中文文案，不透传异常文本。"""
+
+    def _boom(workspace_id: int):
+        raise RuntimeError("connect to http://10.0.0.1:9999/internal/v1 failed")
+
+    monkeypatch.setattr(runner_mod, "build_agent", _boom)
+    events = [e async for e in runner_mod.agent_stream(seed_agent_data["conv_id"], QUERY)]
+    parsed = parse_sse(events)
+    errors = [e for e in parsed if e["type"] == "error"]
+    assert errors and errors[0]["message"] == "生成失败，请稍后重试。"
+    # 内部端点信息不得出现在任何下发事件里
+    assert "10.0.0.1" not in "".join(events)
+    # 仍以 citations + done 正常收尾，不挂死连接
+    assert parsed[-2]["type"] == "citations" and parsed[-1]["type"] == "done"
+
+
 async def test_kb_search_workspace_isolation_and_dedup(seed_agent_data):
     """kb_search 只返回本工作区命中；重复查询 citations 去重且编号从 1 连续。"""
     from app.services.agent.tools import kb_search_impl

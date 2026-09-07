@@ -6,6 +6,7 @@
 """
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -30,6 +31,8 @@ from app.models.entities import Conversation, Message
 from app.services.agent.agent import build_agent
 from app.services.agent.deps import Deps
 from app.services.chat.service import load_history
+
+logger = logging.getLogger(__name__)
 
 # Agent 整体运行时限（秒）
 AGENT_TIMEOUT = 120.0
@@ -93,7 +96,6 @@ async def agent_stream(
         s.add(Message(conversation_id=conversation_id, role="user", content=question))
         s.commit()
 
-        agent = build_agent(workspace_id)
         deps = Deps(workspace_id=workspace_id)
         yield _sse({"type": "stage", "stage": "retrieving"})
         yield _sse({"type": "stage", "stage": "generating"})
@@ -103,6 +105,8 @@ async def agent_stream(
         # 记录最近一次工具调用参数，结果事件到达时与 preview 一起写入 trace
         last_args: dict[str, Any] = {}
         try:
+            # agent 构造也在 try 内：默认 LLM 配置异常同样降级为 error 事件
+            agent = build_agent(workspace_id)
             async with asyncio.timeout(AGENT_TIMEOUT):
                 async with agent.iter(
                     question,
@@ -167,8 +171,10 @@ async def agent_stream(
             error = "已达本轮工具调用次数上限，请稍后重试或换个问法。"
         except TimeoutError:
             error = "回答超时，已停止生成。"
-        except Exception as e:  # noqa: BLE001 — 流中异常以 error 事件降级，绝不抛出
-            error = f"生成失败：{e}"
+        except Exception:  # noqa: BLE001 — 流中异常以 error 事件降级，绝不抛出
+            # 完整异常（含端点等内部信息）只在服务端日志记录，前端只给固定文案
+            logger.exception("Agent 生成失败（会话 %s）", conversation_id)
+            error = "生成失败，请稍后重试。"
 
         if error:
             yield _sse({"type": "error", "message": error})
