@@ -42,6 +42,7 @@ export default function ChatPage({
   const [agentAvailable, setAgentAvailable] = useState(false);
   // Agent 模式为会话级开关：仅当后端探测到 LLM 支持工具调用时才展示
   const [agentMode, setAgentMode] = useState(false);
+  const messagesAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -118,7 +119,9 @@ export default function ChatPage({
   }, [activeId, asking]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    // 只滚动消息容器自身，避免 scrollIntoView 连带滚动整个文档把侧边栏顶走
+    const el = messagesAreaRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
   // 挂载时探测 Agent 能力：后端启动时对默认 LLM 做过最小 tools 请求探测
@@ -305,7 +308,7 @@ export default function ChatPage({
           </p>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+        <div ref={messagesAreaRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
           <div className="mx-auto max-w-[72ch] space-y-5">
             {messages.length === 0 && (
               <div className="py-14 text-center">
