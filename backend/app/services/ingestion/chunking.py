@@ -77,3 +77,36 @@ def split_blocks(blocks: list[dict], max_tokens: int = 500, overlap_ratio: float
     if buf:
         flush()
     return chunks
+
+
+def split_parents_and_children(
+    blocks: list[dict],
+    parent_tokens: int = 500,
+    child_tokens: int = 200,
+    overlap_ratio: float = 0.1,
+) -> list[dict]:
+    """父子分块：结构感知聚合成父块，父块内部再切子块。
+
+    - 父块：沿用 split_blocks 的结构感知聚合（parent_tokens 上限，父块间不重叠，
+      避免父块全文在多个引用中重复出现）。每节的 heading_path/page_no 连续，
+      故父块必属单节。
+    - 子块：父块内部用 split_blocks 再切（同节内轻重叠 overlap_ratio，跨节天然
+      不重叠——父块本身不跨节），子块继承父块的 heading_path/page_no，token_count
+      单独计算。
+    - 父块内容 ≤ child_tokens 时不切子块（children 为空列表），父块自身即叶子，
+      直接作为检索单元，行为与旧版切分一致。
+    """
+    parents = split_blocks(blocks, max_tokens=parent_tokens, overlap_ratio=0.0)
+    units: list[dict] = []
+    for p in parents:
+        if p["token_count"] <= child_tokens:
+            children: list[dict] = []  # 短父块不切子块，父块自身即叶子
+        else:
+            # 父块单节，子块重叠只发生在同节内
+            children = split_blocks(
+                [{"text": p["text"], "heading_path": p["heading_path"],
+                  "page_no": p["page_no"]}],
+                max_tokens=child_tokens, overlap_ratio=overlap_ratio,
+            )
+        units.append({**p, "children": children})
+    return units

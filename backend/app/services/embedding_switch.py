@@ -5,8 +5,8 @@
 import logging
 from copy import deepcopy
 
-from sqlalchemy import delete, select
-from sqlalchemy.orm import Session
+from sqlalchemy import delete, exists, or_, select
+from sqlalchemy.orm import Session, aliased
 
 from app.core.db import SessionLocal
 from app.models.entities import AppConfig, Chunk, ChunkEmbedding, Document
@@ -15,6 +15,15 @@ from app.services.ingestion.pipeline import build_embedding_provider, get_defaul
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 32
+
+# 叶子原则（与 retrieval/search.py 一致）：只重嵌叶子块 = parent_id 非空的子块，
+# 或没有子块指向自己的块（旧文档未回填时父块自身即叶子）。父块全文不直接参与
+# 检索，为其生成向量纯属浪费。
+_LeafChunk = aliased(Chunk)
+_LEAF_FILTER = or_(
+    Chunk.parent_id.isnot(None),
+    ~exists().where(_LeafChunk.parent_id == Chunk.id),
+)
 
 
 def read_state(s: Session) -> dict:
@@ -41,7 +50,7 @@ async def reembed_all(target_model: str) -> None:
         cfg.model = target_model  # provider 配置行本身不被修改
         chunk_ids = s.execute(
             select(Chunk.id).join(Document, Chunk.document_id == Document.id)
-            .where(Document.status == "ready").order_by(Chunk.id)
+            .where(Document.status == "ready", _LEAF_FILTER).order_by(Chunk.id)
         ).scalars().all()
         total = len(chunk_ids)
         # 先删 target_model 已有向量（幂等），绝不删其他 model_name
@@ -60,7 +69,7 @@ async def reembed_all(target_model: str) -> None:
             with SessionLocal() as s:
                 batch = s.execute(
                     select(Chunk).join(Document, Chunk.document_id == Document.id)
-                    .where(Document.status == "ready", Chunk.id > last_id)
+                    .where(Document.status == "ready", _LEAF_FILTER, Chunk.id > last_id)
                     .order_by(Chunk.id).limit(BATCH_SIZE)
                 ).scalars().all()
                 if not batch:

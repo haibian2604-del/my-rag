@@ -16,6 +16,13 @@ const STARTERS = [
   "资料里提到了哪些数据或步骤？",
 ];
 
+// 检索阶段提示文案：后端 stage 事件 → 等待区展示
+const STAGE_LABELS: Record<string, string> = {
+  retrieving: "正在检索知识库…",
+  reranking: "正在重排命中结果…",
+  generating: "正在生成回答…",
+};
+
 export default function ChatPage({
   workspace,
   activeId,
@@ -29,6 +36,7 @@ export default function ChatPage({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [asking, setAsking] = useState(false);
+  const [stage, setStage] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [docSummary, setDocSummary] = useState<{ ready: number; total: number } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -156,6 +164,7 @@ export default function ChatPage({
     }
     setError("");
     setAsking(true);
+    setStage(null);
     abortRef.current = new AbortController();
     const conv = conversations.find((c) => c.id === activeId);
     if (conv && (!conv.title || conv.title === "新对话")) {
@@ -196,6 +205,8 @@ export default function ChatPage({
       for await (const ev of parseSSE(resp.body) as AsyncGenerator<SSEEvent>) {
         if (ev.type === "citations") {
           citations = ev.items;
+        } else if (ev.type === "stage") {
+          setStage(ev.stage); // 等待区按最新阶段提示
         } else if (ev.type === "delta") {
           setMessages((prev) => {
             const copy = [...prev];
@@ -236,6 +247,7 @@ export default function ChatPage({
     } finally {
       abortRef.current = null;
       setAsking(false);
+      setStage(null);
     }
   };
 
@@ -345,7 +357,9 @@ export default function ChatPage({
               <MessageBubble key={m.id} message={m} />
             ))}
             {waitingFirstToken && (
-              <p className="text-sm text-faint">正在检索资料并思考…</p>
+              <p className="text-sm text-faint">
+                {(stage && STAGE_LABELS[stage]) || "正在检索资料并思考…"}
+              </p>
             )}
             <div ref={bottomRef} />
           </div>

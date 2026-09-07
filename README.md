@@ -79,6 +79,7 @@ docker compose up -d --build
 - [x] 中文检索评测集与 recall@5 脚本
 - [x] M2：网页 URL 抓取入库、嵌入模型切换向导（并行重嵌 / 回滚）
 - [x] M3：重排接入默认链路（oMLX reranker）、混合检索（jieba + FTS + RRF）、数据备份脚本
+- [x] M4：HNSW 向量索引、检索阶段进度（SSE stage）、父子分块（子块检索 / 父块上下文）、PDF 表格转 Markdown 与扫描件识别
 
 ## 混合检索说明
 
@@ -92,4 +93,12 @@ cd backend && uv run python -m app.services.ingestion.backfill_fts
 
 ```bash
 cd backend && uv run python -m tests.evaluation.run_eval --compare
+```
+
+## 父子分块说明
+
+新文档默认按「父块 500 token / 子块 200 token（同节内轻重叠）」父子切分：嵌入与全文索引都建在子块上，检索命中子块后按父块聚合去重，引用返回父块全文作为更完整的上下文。存量文档不回填也不影响检索（旧块自身即检索单元）；回填后可享受父块级上下文：
+
+```bash
+cd backend && uv run python -m app.services.ingestion.backfill_parent_child
 ```

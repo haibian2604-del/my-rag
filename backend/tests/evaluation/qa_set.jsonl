@@ -18,3 +18,5 @@
 {"query": "导出机密数据需要谁审批？", "expect_keywords": ["双重审批"]}
 {"query": "办公电脑离开工位要注意什么？", "expect_keywords": ["锁屏"]}
 {"query": "离职时账号权限怎么处理？", "expect_keywords": ["回收"]}
+{"query": "一线城市住宿报销上限是多少？", "expect_keywords": ["800"]}
+{"query": "报销住宿超上限需要谁审批？", "expect_keywords": ["部门主管"]}

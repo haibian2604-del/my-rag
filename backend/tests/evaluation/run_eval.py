@@ -42,12 +42,18 @@ def create_workspace() -> int:
         return ws.id
 
 
+MIME_BY_SUFFIX = {
+    ".md": "text/markdown", ".txt": "text/plain",
+    ".pdf": "application/pdf", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
+
 def add_document(ws_id: int, path: Path) -> int:
     content = path.read_bytes()
     with SessionLocal() as s:
         doc = Document(
             workspace_id=ws_id, filename=path.name, source_type="upload",
-            mime="text/markdown", size=len(content),
+            mime=MIME_BY_SUFFIX.get(path.suffix, "text/markdown"), size=len(content),
             checksum=hashlib.sha256(content).hexdigest(), status="pending",
         )
         s.add(doc)
@@ -133,7 +139,7 @@ def main() -> None:
     ws_id = create_workspace()
     try:
         print(f"评测工作区 #{ws_id}，摄取样例文档…")
-        for doc_path in sorted(DOCS_DIR.glob("*.md")):
+        for doc_path in sorted(p for p in DOCS_DIR.glob("*") if p.suffix in MIME_BY_SUFFIX):
             doc_id = add_document(ws_id, doc_path)
             asyncio.run(ingest_document(doc_id))
             with SessionLocal() as s:

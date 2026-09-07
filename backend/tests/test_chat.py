@@ -102,8 +102,13 @@ def test_ask_streams_citations_and_persists(client, seed_data):
         assert resp.headers["content-type"].startswith("text/event-stream")
         body = b"".join(resp.iter_bytes()).decode()
     assert '"type":"citations"' in body and '"type":"delta"' in body and '"type":"done"' in body
-    # 事件顺序：citations 先于 delta 先于 done
-    assert body.index('"type":"citations"') < body.index('"type":"delta"') < body.index('"type":"done"')
+    # 事件顺序：stage(retrieving) → stage(generating) → citations → delta → done
+    # （未配置默认 rerank provider，不应出现 reranking 阶段）
+    seq = ['"stage":"retrieving"', '"stage":"generating"',
+           '"type":"citations"', '"type":"delta"', '"type":"done"']
+    idx = [body.index(t) for t in seq]
+    assert idx == sorted(idx)
+    assert '"stage":"reranking"' not in body
     with SessionLocal() as s:
         msgs = s.execute(select(Message).where(Message.conversation_id == cid)
                          .order_by(Message.id)).scalars().all()
@@ -113,6 +118,35 @@ def test_ask_streams_citations_and_persists(client, seed_data):
         # 清理
         s.delete(s.get(Conversation, cid))
         s.commit()
+
+
+def test_ask_emits_reranking_stage_with_rerank_provider(client, seed_data):
+    """配置默认 rerank provider 时，事件序列应含 reranking 阶段（调用失败自动降级不阻塞）。"""
+    with SessionLocal() as s:
+        # 指向不可达地址：stage 应照常发出，rerank 失败走降级，检索结果不受影响
+        rr = ProviderConfig(kind="rerank", provider="omlx", base_url="http://127.0.0.1:1",
+                            model="fake-rerank", is_default=True)
+        s.add(rr)
+        s.commit()
+        rr_id = rr.id
+        conv = Conversation(workspace_id=seed_data["ws_id"])
+        s.add(conv)
+        s.commit()
+        cid = conv.id
+    try:
+        with client.stream("POST", f"/api/conversations/{cid}/ask",
+                           json={"question": QUERY}) as resp:
+            assert resp.status_code == 200
+            body = b"".join(resp.iter_bytes()).decode()
+        seq = ['"stage":"retrieving"', '"stage":"reranking"', '"stage":"generating"',
+               '"type":"citations"', '"type":"delta"', '"type":"done"']
+        idx = [body.index(t) for t in seq]
+        assert idx == sorted(idx)
+    finally:
+        with SessionLocal() as s:
+            s.delete(s.get(ProviderConfig, rr_id))
+            s.delete(s.get(Conversation, cid))
+            s.commit()
 
 
 def test_ask_without_llm_config_returns_400(client, seed_data):

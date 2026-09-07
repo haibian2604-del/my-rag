@@ -13,7 +13,7 @@ from app.core.db import SessionLocal
 from app.models.entities import Chunk, ChunkEmbedding, Document, ProviderConfig
 from app.providers.embedding.fake import FakeEmbedding
 from app.providers.embedding.openai_compat import OpenAICompatEmbedding
-from app.services.ingestion.chunking import split_blocks
+from app.services.ingestion.chunking import split_parents_and_children
 from app.services.ingestion.parsing import parse_file
 from app.services.ingestion.tokenize import tokenize_for_fts
 from app.services.providers_service import decrypt_api_key
@@ -59,7 +59,7 @@ async def ingest_document(document_id: int) -> None:
             doc.status = "parsing"
             s.commit()
             blocks = parse_file(doc_file_path(doc), doc.mime)
-            chunks = split_blocks(blocks)
+            units = split_parents_and_children(blocks)
             doc.status = "embedding"
             s.commit()
             emb_cfg = get_default_provider(s, "embedding")
@@ -69,22 +69,46 @@ async def ingest_document(document_id: int) -> None:
                 ChunkEmbedding.chunk_id.in_(select(Chunk.id).where(Chunk.document_id == document_id))
             ))
             s.execute(delete(Chunk).where(Chunk.document_id == document_id))
-            s.add_all([
-                Chunk(document_id=document_id, workspace_id=doc.workspace_id,
-                      ordinal=i, content=c["text"], token_count=c.get("token_count", 0),
-                      heading_path=c.get("heading_path", ""), page_no=c.get("page_no"),
-                      fts=func.to_tsvector("simple", tokenize_for_fts(c["text"])))
-                for i, c in enumerate(chunks)
-            ])
+            # 父子分块写入：父块行（有子块时 fts 为 NULL，仅存全文）；子块行
+            # parent_id 指向父块，fts 建在子块上。无子块的短父块自身即叶子，
+            # fts 直接建在父块上（兼容旧文档语义）。
+            embeddable: list[Chunk] = []  # 待嵌入的叶子块：有子块则仅子块，否则父块本身
+            ordinal = 0
+            for u in units:
+                parent = Chunk(
+                    document_id=document_id, workspace_id=doc.workspace_id,
+                    ordinal=ordinal, parent_id=None,
+                    content=u["text"], token_count=u.get("token_count", 0),
+                    heading_path=u.get("heading_path", ""), page_no=u.get("page_no"),
+                    fts=func.to_tsvector("simple", tokenize_for_fts(u["text"]))
+                    if not u["children"] else None,
+                )
+                s.add(parent)
+                s.flush()  # 取 parent.id 供子块外键引用
+                ordinal += 1
+                if u["children"]:
+                    children = [
+                        Chunk(
+                            document_id=document_id, workspace_id=doc.workspace_id,
+                            ordinal=ordinal, parent_id=parent.id,
+                            content=c["text"], token_count=c.get("token_count", 0),
+                            heading_path=c.get("heading_path", ""), page_no=c.get("page_no"),
+                            fts=func.to_tsvector("simple", tokenize_for_fts(c["text"])),
+                        )
+                        for c in u["children"]
+                    ]
+                    s.add_all(children)
+                    ordinal += len(children)
+                    embeddable.extend(children)
+                else:
+                    embeddable.append(parent)
             s.commit()
-            db_chunks = s.execute(
-                select(Chunk).where(Chunk.document_id == document_id).order_by(Chunk.ordinal)
-            ).scalars().all()
-            vectors = await provider.embed([c.content for c in db_chunks])
+            # 嵌入仅对叶子块（子块；无子块的短父块嵌父块自身）
+            vectors = await provider.embed([c.content for c in embeddable])
             s.add_all([
                 ChunkEmbedding(chunk_id=c.id, workspace_id=c.workspace_id,
                                model_name=emb_cfg.model, dim=len(v), embedding=v)
-                for c, v in zip(db_chunks, vectors)
+                for c, v in zip(embeddable, vectors)
             ])
             doc.status = "ready"
             doc.error = None

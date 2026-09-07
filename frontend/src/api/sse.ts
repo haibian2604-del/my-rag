@@ -9,6 +9,7 @@ export interface Citation {
 export type SSEEvent =
   | { type: "citations"; items: Citation[] }
   | { type: "delta"; text: string }
+  | { type: "stage"; stage: "retrieving" | "reranking" | "generating" }
   | { type: "done" }
   | { type: "error"; message: string };
 
