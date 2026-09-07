@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ApiError, del, get, post, put, type Workspace } from "../api/client";
+import { ApiError, get, put, type Workspace } from "../api/client";
 import EmbeddingSwitcher from "../components/EmbeddingSwitcher";
 import ProviderForm, { type Provider } from "../components/ProviderForm";
 
@@ -17,14 +17,6 @@ interface WorkspaceSettings {
   context_max_tokens: number;
 }
 
-interface ApiKeyItem {
-  id: number;
-  name: string;
-  key_prefix: string;
-  created_at: string;
-  last_used_at: string | null;
-}
-
 export default function SettingsPage({ workspace }: { workspace: Workspace }) {
   const [tab, setTab] = useState<(typeof KINDS)[number]["key"]>("llm");
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -35,13 +27,8 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
   const [pwMsgError, setPwMsgError] = useState(false);
   const [wsSettings, setWsSettings] = useState<WorkspaceSettings | null>(null);
   const [wsMsg, setWsMsg] = useState("");
-  const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>([]);
-  const [keyName, setKeyName] = useState("");
-  const [keyCreating, setKeyCreating] = useState(false);
-  const [createdKey, setCreatedKey] = useState<string | null>(null);
-  const [keyMsg, setKeyMsg] = useState("");
-  const [keyMsgError, setKeyMsgError] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [mcpEnabled, setMcpEnabled] = useState<boolean | null>(null);
+  const [mcpMsg, setMcpMsg] = useState("");
 
   const refreshProviders = async () => {
     setProviders(await get<Provider[]>("/api/settings/providers"));
@@ -49,14 +36,14 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
   const refreshWs = async () => {
     setWsSettings(await get<WorkspaceSettings>(`/api/workspaces/${workspace.id}/settings`));
   };
-  const refreshKeys = async () => {
-    setApiKeys(await get<ApiKeyItem[]>("/api/keys"));
+  const refreshMcp = async () => {
+    setMcpEnabled((await get<{ enabled: boolean }>("/api/mcp/settings")).enabled);
   };
 
   useEffect(() => {
     void refreshProviders().catch(() => undefined);
     void refreshWs().catch(() => undefined);
-    void refreshKeys().catch(() => undefined);
+    void refreshMcp().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.id]);
 
@@ -97,53 +84,20 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
   const currentProvider = providers.find((p) => p.kind === tab) ?? null;
   const activeKind = KINDS.find((k) => k.key === tab)!;
 
-  const createKey = async () => {
-    setKeyMsg("");
-    setKeyMsgError(false);
-    if (!keyName.trim()) {
-      setKeyMsg("请输入密钥名称");
-      setKeyMsgError(true);
-      return;
-    }
-    setKeyCreating(true);
+  const toggleMcp = async () => {
+    if (mcpEnabled === null) return;
+    const next = !mcpEnabled;
+    if (next && !window.confirm(
+      "开启后任何能访问本服务端口的 MCP 客户端都将可以直接连接并读取知识库（无需密钥）。请确保仅在可信的内网环境使用。确定开启？"
+    )) return;
+    setMcpMsg("");
     try {
-      const created = await post<ApiKeyItem & { key: string }>("/api/keys", {
-        name: keyName.trim(),
-      });
-      setCreatedKey(created.key);
-      setKeyName("");
-      setCopied(false);
-      await refreshKeys();
+      const r = await put<{ enabled: boolean }>("/api/mcp/settings", { enabled: next });
+      setMcpEnabled(r.enabled);
+      setMcpMsg(r.enabled ? "MCP 服务已开启" : "MCP 服务已关闭");
     } catch (e) {
-      setKeyMsg(e instanceof ApiError ? e.message : "创建失败");
-      setKeyMsgError(true);
-    } finally {
-      setKeyCreating(false);
+      setMcpMsg(e instanceof ApiError ? e.message : "保存失败");
     }
-  };
-
-  const revokeKey = async (item: ApiKeyItem) => {
-    if (!window.confirm(`确定吊销「${item.name}」吗？使用该密钥的客户端将立即无法连接。`)) return;
-    setKeyMsg("");
-    setKeyMsgError(false);
-    try {
-      await del(`/api/keys/${item.id}`);
-      await refreshKeys();
-    } catch (e) {
-      setKeyMsg(e instanceof ApiError ? e.message : "吊销失败");
-      setKeyMsgError(true);
-    }
-  };
-
-  const copyKey = async () => {
-    if (!createdKey) return;
-    await navigator.clipboard.writeText(createdKey);
-    setCopied(true);
-  };
-
-  const formatTime = (iso: string | null, empty: string) => {
-    if (!iso) return empty;
-    return new Date(iso).toLocaleString("zh-CN", { hour12: false });
   };
 
   return (
@@ -310,66 +264,32 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
       </section>
 
       <section className="lg:border-r lg:border-line lg:pr-12">
-        <h2 className="font-display text-base">API 密钥</h2>
+        <h2 className="font-display text-base">MCP 服务</h2>
         <p className="mt-1 text-xs leading-5 text-faint">
-          外部 Agent（如 Claude Code）通过 MCP 协议连接知识库时使用的凭据，创建方法见 README「MCP 服务」。
+          开启后，外部 Agent（Claude Code、Cursor 等）可通过 MCP 协议（端点 /mcp，HTTP 直连、无需密钥）检索与问答本知识库。
         </p>
         <div className="mt-4 flex items-center gap-3">
-          <input
-            className="input max-w-56"
-            value={keyName}
-            onChange={(e) => setKeyName(e.target.value)}
-            placeholder="密钥名称（如：Claude Code）"
-          />
-          <button className="btn-primary" disabled={!keyName.trim() || keyCreating} onClick={() => void createKey()}>
-            创建密钥
+          <button
+            role="switch"
+            aria-checked={mcpEnabled ?? false}
+            className={`relative h-6 w-11 rounded-full transition-colors ${mcpEnabled ? "bg-seal" : "bg-line"}`}
+            onClick={() => void toggleMcp()}
+            disabled={mcpEnabled === null}
+          >
+            <span
+              className={`absolute top-0.5 h-5 w-5 rounded-full bg-card shadow transition-all ${mcpEnabled ? "left-[22px]" : "left-0.5"}`}
+            />
           </button>
+          <span className="text-sm">{mcpEnabled ? "已开启" : "已关闭"}</span>
         </div>
-        {keyMsg && <p className={`mt-2 text-sm ${keyMsgError ? "text-seal" : "text-faint"}`}>{keyMsg}</p>}
-        {apiKeys.length > 0 && (
-          <div className="panel mt-4 divide-y divide-line">
-            {apiKeys.map((item) => (
-              <div key={item.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
-                <span className="min-w-0 flex-1 truncate">{item.name}</span>
-                <span className="font-mono text-xs text-faint">{item.key_prefix}…</span>
-                <span className="hidden text-xs text-faint sm:block">
-                  创建于 {formatTime(item.created_at, "—")}
-                </span>
-                <span className="hidden text-xs text-faint md:block">
-                  最近使用：{formatTime(item.last_used_at, "未使用")}
-                </span>
-                <button className="btn-ghost shrink-0 text-seal" onClick={() => void revokeKey(item)}>
-                  吊销
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        <p className="mt-2 text-xs leading-5 text-faint">
+          开启即代表允许任何能访问本服务端口的客户端读取知识库，请仅在可信的内网环境开启。客户端配置见 README「MCP 服务」。
+        </p>
+        {mcpMsg && <p className="mt-2 text-sm text-faint">{mcpMsg}</p>}
       </section>
       </div>
       </div>
 
-      {createdKey && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4">
-          <div className="panel w-full max-w-md p-5">
-            <h3 className="font-display text-base">密钥已创建</h3>
-            <p className="mt-2 text-xs leading-5 text-seal">
-              这是唯一一次展示明文密钥，关闭后无法再查看，请妥善保存。
-            </p>
-            <div className="mt-3 break-all rounded-md bg-paper-deep p-2.5 font-mono text-[13px]">
-              {createdKey}
-            </div>
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button className="btn-ghost" onClick={() => void copyKey()}>
-                {copied ? "已复制" : "复制"}
-              </button>
-              <button className="btn-primary" onClick={() => setCreatedKey(null)}>
-                我已保存，关闭
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -110,14 +110,3 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(50), unique=True)
     password_hash: Mapped[str] = mapped_column(String(100))  # bcrypt
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-
-class ApiKey(Base):
-    """MCP 访问密钥（M7）：仅存 bcrypt 哈希，明文只在创建响应返回一次。"""
-    __tablename__ = "api_keys"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(100))  # 用途备注，如 "claude-code"
-    key_prefix: Mapped[str] = mapped_column(String(12))  # 明文前缀（如 zk-1a2b），用于列表识别
-    key_hash: Mapped[str] = mapped_column(String(100))  # bcrypt
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

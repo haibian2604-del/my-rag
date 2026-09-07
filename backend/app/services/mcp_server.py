@@ -3,14 +3,11 @@
 架构（Spec docs/04 §三）：
 - FastMCP("zhifu") 实例 + 五个只读工具（全部复用既有服务层，不复制业务逻辑）；
 - mcp.http_app(path="/") 生成 Streamable HTTP 子应用，由 main.py 挂载到 /mcp；
-- BearerAuthMiddleware：仅作用于 /mcp 路径的纯 ASGI 中间件，
-  校验 Authorization: Bearer zk-…（bcrypt 比对 api_keys.key_hash），
-  通过后后台更新 last_used_at（不阻塞响应），失败返回 401 JSON。
+- McpGateMiddleware：仅作用于 /mcp 路径的纯 ASGI 中间件，
+  按 app_config 的 mcp_enabled 开关门禁（默认关；关闭返回 403）。
+  开启后任何 MCP 客户端可直接 HTTP 连接（无认证），请在可信内网使用。
 - lifespan 共处由 main.py 用 fastmcp 的 combine_lifespans 合并解决。
-
-安全约定：key 明文只在请求头中出现，绝不入库/写日志/回显。
 """
-import asyncio
 import json
 import logging
 
@@ -20,8 +17,7 @@ from sqlalchemy import select as sa_select
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.core.db import SessionLocal
-from app.models.entities import Chunk, Document, Workspace
-from app.services import api_keys_service
+from app.models.entities import AppConfig, Chunk, Document, Workspace
 from app.services.chat.llm_util import llm_complete
 from app.services.chat.service import SYSTEM_PROMPT, LLMNotConfiguredError, get_llm_or_raise
 from app.services.retrieval.context import build_context
@@ -163,17 +159,33 @@ async def get_document(doc_id: int) -> dict:
 mcp_http_app = mcp.http_app(path="/")
 
 
-# ============ Bearer 认证中间件（仅作用于 /mcp） ============
+# ============ MCP 开关门禁中间件（仅作用于 /mcp） ============
 
 _MCP_PATH = "/mcp"
-_background_tasks: set[asyncio.Task] = set()  # 持有引用防止 touch 任务被 GC
 
 
-class BearerAuthMiddleware:
-    """纯 ASGI 中间件：仅对 /mcp 路径强制 Bearer API Key。
+def is_mcp_enabled() -> bool:
+    """读 app_config 的 mcp_enabled 开关（默认关）。"""
+    with SessionLocal() as s:
+        row = s.get(AppConfig, "mcp_enabled")
+        return bool(row.value.get("enabled", False)) if row else False
 
-    校验通过 → verify 命中后后台 touch（更新 last_used_at，不阻塞响应）；
-    校验失败 → 401 JSON（中文 detail）。
+
+def set_mcp_enabled(enabled: bool) -> None:
+    with SessionLocal() as s:
+        row = s.get(AppConfig, "mcp_enabled")
+        if row is None:
+            s.add(AppConfig(key="mcp_enabled", value={"enabled": enabled}))
+        else:
+            row.value = {"enabled": enabled}
+        s.commit()
+
+
+class McpGateMiddleware:
+    """纯 ASGI 中间件：仅对 /mcp 路径做开关门禁（无认证，由用户在设置页显式开启）。
+
+    关闭 → 403 JSON（中文 detail）；开启 → 直接放行（HTTP 连接，无需密钥）。
+    访问控制 = 开关本身：请在完全可信的内网环境开启。
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -188,33 +200,18 @@ class BearerAuthMiddleware:
             await self.app(scope, receive, send)
             return
 
-        auth_header = ""
-        for name, value in scope.get("headers") or []:
-            if name == b"authorization":
-                auth_header = value.decode("latin-1")
-                break
-        raw_key = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
-        row = await asyncio.to_thread(api_keys_service.verify, raw_key) if raw_key else None
-        if row is None:
-            body = json.dumps(
-                {"detail": "无效或缺失的 API Key，请在 Authorization 头携带 Bearer zk-…"}
-            ).encode()
+        if not is_mcp_enabled():
+            body = json.dumps({"detail": "MCP 服务未开启，请在设置页开启后连接"}).encode()
             await send({
                 "type": "http.response.start",
-                "status": 401,
+                "status": 403,
                 "headers": [
                     (b"content-type", b"application/json; charset=utf-8"),
-                    (b"www-authenticate", b"Bearer"),
                     (b"content-length", str(len(body)).encode()),
                 ],
             })
             await send({"type": "http.response.body", "body": body})
             return
-
-        # 后台更新最近使用时间：不阻塞响应路径；失败只记日志（touch 内部处理）
-        task = asyncio.create_task(asyncio.to_thread(api_keys_service.touch, row.id))
-        _background_tasks.add(task)
-        task.add_done_callback(_background_tasks.discard)
 
         # 精确命中 /mcp（无尾斜杠）时改写为 /mcp/，避免 Mount 内部再发 307 重定向——
         # 部分严格的 MCP 客户端不跟随 POST 重定向

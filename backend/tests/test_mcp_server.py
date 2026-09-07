@@ -4,7 +4,7 @@
 - 401/中间件类测试：TestClient 直接打 /mcp（无需 MCP 握手，401 在中间件层返回）；
 - 真实 MCP 握手 + 工具调用：fastmcp 官方 Client + StreamableHttpTransport，
   用 httpx2.AsyncClient(transport=httpx2.ASGITransport(app)) 工厂把请求打进
-  ASGI 应用（完整穿过 Bearer 中间件），lifespan 用 app.router.lifespan_context
+  ASGI 应用（完整穿过 MCP 开关门禁中间件），lifespan 用 app.router.lifespan_context
   手动进入（ASGITransport 不触发 lifespan，而 MCP 会话管理器依赖它）。
 """
 import asyncio
@@ -16,28 +16,23 @@ from fastapi.testclient import TestClient
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from fastmcp.exceptions import ToolError
-from sqlalchemy import delete
 
 from app.core.db import SessionLocal
 from app.main import create_app
-from app.models.entities import ApiKey, Chunk, ChunkEmbedding, Document, ProviderConfig, Workspace
+from app.models.entities import Chunk, ChunkEmbedding, Document, ProviderConfig, Workspace
 from app.providers.embedding.fake import FakeEmbedding
-from app.services import api_keys_service
+from app.services.mcp_server import set_mcp_enabled
 
 QUERY = "退款政策几天可以退款"
 REFUND_TEXT = "本店退款政策：签收后 7 天内可申请退款，15 天内可换货。"
 
 
 @pytest.fixture(autouse=True)
-def _clean_tables():
-    """每条测试前后清空 api_keys；工作区由 seed fixture 自清理。"""
-    with SessionLocal() as s:
-        s.execute(delete(ApiKey))
-        s.commit()
+def _reset_mcp_gate():
+    """每条测试默认关闭 MCP 门禁（测试内显式开启）；结束后复位为关。"""
+    set_mcp_enabled(False)
     yield
-    with SessionLocal() as s:
-        s.execute(delete(ApiKey))
-        s.commit()
+    set_mcp_enabled(False)
 
 
 @pytest.fixture
@@ -49,9 +44,9 @@ def raw_client():
 
 @pytest.fixture
 def api_key() -> str:
-    """生成一个有效 key，返回明文。"""
-    _row, raw = api_keys_service.generate("mcp-test")
-    return raw
+    """开启 MCP 门禁后不再需要密钥；保留 fixture 名以最小化用例改动，返回空串。"""
+    set_mcp_enabled(True)
+    return ""
 
 
 @pytest.fixture
@@ -82,72 +77,44 @@ def seed_data():
         s.commit()
 
 
-# ---------- 401 / 中间件（TestClient，无需握手） ----------
+# ---------- 开关门禁（TestClient，无需握手） ----------
 
 
-def test_mcp_without_key_returns_401(raw_client):
+def test_mcp_disabled_returns_403(raw_client):
     resp = raw_client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize"})
-    assert resp.status_code == 401
-    assert "API Key" in resp.json()["detail"]
+    assert resp.status_code == 403
+    assert "MCP 服务未开启" in resp.json()["detail"]
 
 
-def test_mcp_with_bad_key_returns_401(raw_client):
-    resp = raw_client.post(
-        "/mcp",
-        json={"jsonrpc": "2.0", "id": 1, "method": "initialize"},
-        headers={"Authorization": "Bearer zk-not-a-real-key"},
-    )
-    assert resp.status_code == 401
+def test_mcp_enabled_passes_gate(raw_client):
+    set_mcp_enabled(True)
+    resp = raw_client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize"})
+    assert resp.status_code != 403  # 门禁放行（握手细节由下方真实客户端用例覆盖）
 
 
-def test_mcp_revoked_key_returns_401(raw_client):
-    _row, raw = api_keys_service.generate("short-lived")
-    headers = {"Authorization": f"Bearer {raw}"}
-    resp = raw_client.post(
-        "/mcp",
-        json={"jsonrpc": "2.0", "id": 1, "method": "initialize"},
-        headers=headers,
-    )
-    # 有效 key 通过中间件（进入子应用后因无 lifespan/会话管理器报 500/400，但不是 401）
-    assert resp.status_code != 401
-    with SessionLocal() as s:
-        s.execute(delete(ApiKey))
-        s.commit()
-    resp = raw_client.post(
-        "/mcp",
-        json={"jsonrpc": "2.0", "id": 1, "method": "initialize"},
-        headers=headers,
-    )
-    assert resp.status_code == 401
+def test_mcp_toggle_roundtrip(raw_client):
+    """开关往返：关 → 403；开 → 放行；再关 → 403。"""
+    resp = raw_client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize"})
+    assert resp.status_code == 403
+    set_mcp_enabled(True)
+    resp = raw_client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize"})
+    assert resp.status_code != 403
+    set_mcp_enabled(False)
+    resp = raw_client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize"})
+    assert resp.status_code == 403
 
 
 def test_mcp_other_routes_unaffected(raw_client, client):
-    """/mcp 之外的路由零行为变化：health 正常，api 仍走登录认证。"""
+    """/mcp 之外的路由零行为变化：health 正常，MCP 开关接口仍走登录认证。"""
     assert raw_client.get("/api/health").json() == {"status": "ok"}
-    assert raw_client.get("/api/keys").status_code == 401
+    assert raw_client.get("/api/mcp/settings").status_code == 401
+    assert client.get("/api/mcp/settings").json() == {"enabled": False}
+    assert client.put("/api/mcp/settings", json={"enabled": True}).json() == {"enabled": True}
+    assert raw_client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize"}).status_code != 403
+    client.put("/api/mcp/settings", json={"enabled": False})
 
 
-def test_touch_failure_does_not_raise(monkeypatch):
-    """T1 minor 回归：touch 失败走 logger.warning 而非静默 pass。"""
-    from app.services import api_keys_service
 
-    def _boom(key_id):
-        raise RuntimeError("db down")
-
-    class _BoomSession:
-        def __enter__(self):
-            raise RuntimeError("db down")
-
-        def __exit__(self, *args):
-            return False
-
-    monkeypatch.setattr(api_keys_service, "SessionLocal", lambda: _BoomSession())
-    warnings = []
-    monkeypatch.setattr(
-        api_keys_service.logger, "warning", lambda msg, *a: warnings.append(msg % a if a else msg)
-    )
-    api_keys_service.touch(12345)
-    assert warnings and "last_used_at" in warnings[0]
 
 
 # ---------- 真实 MCP 握手 + 工具调用（fastmcp Client → ASGI） ----------
