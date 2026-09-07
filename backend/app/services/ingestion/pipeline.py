@@ -130,3 +130,10 @@ async def ingest_document(document_id: int) -> None:
                 s.commit()
             logger.error("文档 %s 摄取失败: %s", document_id, e)
             raise
+        # 摘要生成（M5-T2）：放在状态置 ready 之后独立 try，任何失败只记日志，
+        # summary 保持 NULL，绝不影响 ready 状态
+        try:
+            from app.services.summary_service import generate_document_summary
+            await generate_document_summary(document_id)
+        except Exception:  # noqa: BLE001 — 摘要失败降级为不显示
+            logger.warning("文档 %s 摘要生成失败（不影响 ready）", document_id, exc_info=True)

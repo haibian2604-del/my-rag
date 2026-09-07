@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { get } from "../api/client";
 
 export interface DocumentItem {
   id: number;
@@ -10,6 +11,7 @@ export interface DocumentItem {
   checksum: string;
   status: "pending" | "parsing" | "embedding" | "ready" | "failed";
   error: string | null;
+  summary: string | null;
 }
 
 const STATUS_META: Record<
@@ -33,18 +35,44 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+interface DocDetail {
+  summary: string | null;
+  preview: string;
+}
+
 export default function DocumentStatusList({
   documents,
   onDelete,
   onReingest,
+  onGenSummary,
   busyId,
 }: {
   documents: DocumentItem[];
   onDelete: (doc: DocumentItem) => void;
   onReingest: (doc: DocumentItem) => void;
+  onGenSummary: (doc: DocumentItem) => void;
   busyId: number | null;
 }) {
   const [openErrorId, setOpenErrorId] = useState<number | null>(null);
+  const [detailId, setDetailId] = useState<number | null>(null);
+  const [detail, setDetail] = useState<Record<number, DocDetail>>({});
+
+  // 展开/收起详情区：首次展开时拉取详情（preview），失败静默（不显示预览）
+  const toggleDetail = async (docId: number) => {
+    if (detailId === docId) {
+      setDetailId(null);
+      return;
+    }
+    setDetailId(docId);
+    if (!detail[docId]) {
+      try {
+        const d = await get<DocDetail>(`/api/documents/${docId}`);
+        setDetail((prev) => ({ ...prev, [docId]: d }));
+      } catch {
+        /* 详情拉取失败静默，仅不显示预览 */
+      }
+    }
+  };
 
   if (documents.length === 0) {
     return (
@@ -86,6 +114,20 @@ export default function DocumentStatusList({
                 <button
                   className="rounded px-2 py-1 text-xs text-iblue hover:bg-iblue-soft disabled:opacity-40"
                   disabled={busyId === doc.id}
+                  onClick={() => void toggleDetail(doc.id)}
+                >
+                  详情
+                </button>
+                <button
+                  className="rounded px-2 py-1 text-xs text-iblue hover:bg-iblue-soft disabled:opacity-40"
+                  disabled={busyId === doc.id}
+                  onClick={() => onGenSummary(doc)}
+                >
+                  {doc.summary ? "重写摘要" : "生成摘要"}
+                </button>
+                <button
+                  className="rounded px-2 py-1 text-xs text-iblue hover:bg-iblue-soft disabled:opacity-40"
+                  disabled={busyId === doc.id}
                   onClick={() => onReingest(doc)}
                 >
                   重新嵌入
@@ -99,6 +141,22 @@ export default function DocumentStatusList({
                 </button>
               </div>
             </div>
+            {/* 摘要：有则显示，无则不占位 */}
+            {doc.summary && (
+              <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-faint" title={doc.summary}>
+                摘要：{doc.summary}
+              </p>
+            )}
+            {detailId === doc.id && (
+              <div className="mt-2 rounded-md bg-paper-deep px-3 py-2 text-xs leading-5">
+                <p className="text-faint">摘要</p>
+                <p className="mt-0.5 text-ink">{detail[doc.id]?.summary || doc.summary || "（未生成）"}</p>
+                <p className="mt-2 text-faint">原文预览（前 500 字符）</p>
+                <pre className="mt-0.5 max-h-40 overflow-y-auto whitespace-pre-wrap break-all text-faint">
+                  {detail[doc.id]?.preview || "（无法读取原文）"}
+                </pre>
+              </div>
+            )}
             {doc.status === "failed" && doc.error && (
               <div className="mt-2 rounded-md bg-seal-soft px-3 py-2 text-xs leading-5 text-seal">
                 <p className={openErrorId === doc.id ? "" : "line-clamp-2"}>{doc.error}</p>

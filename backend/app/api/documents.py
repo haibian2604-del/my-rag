@@ -32,6 +32,13 @@ class DocumentOut(BaseModel):
     checksum: str
     status: str
     error: str | None
+    summary: str | None = None  # 自动摘要（M5-T2），未生成时为 None
+
+
+class DocumentDetailOut(DocumentOut):
+    """文档详情：额外带原文预览（前 500 字符，文件缺失时为空串）。"""
+
+    preview: str = ""
 
 
 @router.post("/workspaces/{ws_id}/documents", response_model=DocumentOut, status_code=201)
@@ -91,8 +98,35 @@ def list_documents(ws_id: int):
         return list(docs)
 
 
-@router.get("/documents/{doc_id}", response_model=DocumentOut)
+def _read_preview(doc: Document) -> str:
+    """读原文文件前 500 字符作为预览；文件不存在/读取失败返回空串。"""
+    try:
+        text = doc_file_path(doc).read_bytes().decode("utf-8", errors="ignore")
+    except OSError:
+        return ""
+    return text[:500]
+
+
+@router.get("/documents/{doc_id}", response_model=DocumentDetailOut)
 def get_document(doc_id: int):
+    with SessionLocal() as s:
+        doc = s.get(Document, doc_id)
+        if not doc:
+            raise HTTPException(status_code=404, detail="document 不存在")
+        out = DocumentDetailOut.model_validate(doc)
+        out.preview = _read_preview(doc)
+        return out
+
+
+@router.post("/documents/{doc_id}/summary", response_model=DocumentOut)
+async def regenerate_summary(doc_id: int):
+    """手动（重新）生成摘要：失败/无 LLM 降级为不更新 summary，接口不报错。"""
+    with SessionLocal() as s:
+        if not s.get(Document, doc_id):
+            raise HTTPException(status_code=404, detail="document 不存在")
+    from app.services.summary_service import generate_document_summary
+    # 内部已吞掉所有失败（返回 None），这里兜底不抛
+    await generate_document_summary(doc_id)
     with SessionLocal() as s:
         doc = s.get(Document, doc_id)
         if not doc:

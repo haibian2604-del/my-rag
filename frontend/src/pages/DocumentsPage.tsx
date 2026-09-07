@@ -82,6 +82,18 @@ export default function DocumentsPage({ workspace }: { workspace: Workspace }) {
     }
   };
 
+  const genSummary = async (doc: DocumentItem) => {
+    setBusyId(doc.id);
+    try {
+      await post(`/api/documents/${doc.id}/summary`);
+      await refresh();
+    } catch (e) {
+      setUploadError(e instanceof ApiError ? e.message : "摘要生成失败");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-3xl px-4 py-6">
@@ -140,7 +152,7 @@ export default function DocumentsPage({ workspace }: { workspace: Workspace }) {
       {uploadError && <p className="mt-3 text-sm text-seal">{uploadError}</p>}
 
       <div className="mt-6">
-        <DocumentStatusList documents={documents} onDelete={remove} onReingest={reingest} busyId={busyId} />
+        <DocumentStatusList documents={documents} onDelete={remove} onReingest={reingest} onGenSummary={genSummary} busyId={busyId} />
       </div>
       </div>
     </div>
