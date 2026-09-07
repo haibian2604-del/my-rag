@@ -1,15 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiError, del, get, post, put, type Workspace } from "../api/client";
+import { ApiError, get, post, put, type Conversation, type Workspace } from "../api/client";
 import { parseSSE, type Citation, type SSEEvent } from "../api/sse";
 import MessageBubble, { type ChatMessage, type ToolStep } from "../components/MessageBubble";
-import ConfirmDialog from "../components/ConfirmDialog";
-
-interface Conversation {
-  id: number;
-  workspace_id: number;
-  title: string;
-  created_at?: string;
-}
 
 const STARTERS = [
   "这份资料的主要内容是什么？",
@@ -28,18 +20,22 @@ export default function ChatPage({
   workspace,
   activeId,
   onActiveChange,
+  conversations,
+  onConversationsChange,
+  onRefreshConversations,
 }: {
   workspace: Workspace;
   activeId: number | null;
   onActiveChange: (id: number | null) => void;
+  conversations: Conversation[];
+  onConversationsChange: (list: Conversation[]) => void;
+  onRefreshConversations: (wsId: number) => Promise<Conversation[]>;
 }) {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [asking, setAsking] = useState(false);
   const [stage, setStage] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [delConfirm, setDelConfirm] = useState<{ id: number; label: string } | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [followups, setFollowups] = useState<string[]>([]);
   const [docSummary, setDocSummary] = useState<{ ready: number; total: number } | null>(null);
@@ -51,10 +47,6 @@ export default function ChatPage({
   const abortRef = useRef<AbortController | null>(null);
   const bootstrappedWs = useRef<number | null>(null);
 
-  const refreshConversations = () =>
-    get<Conversation[]>(`/api/workspaces/${workspace.id}/conversations`)
-      .then(setConversations)
-      .catch((e) => setError(e instanceof ApiError ? e.message : "加载会话列表失败"));
 
   const loadMessages = async (id: number) => {
     const rows = await get<
@@ -84,27 +76,19 @@ export default function ChatPage({
     setMessages([]);
     (async () => {
       try {
-        const list = await get<Conversation[]>(
-          `/api/workspaces/${workspace.id}/conversations`,
-        );
-        setConversations(list);
-        if (activeId != null) {
-          try {
-            await loadMessages(activeId); // 从其他页面返回：恢复离开的会话
-            return;
-          } catch {
-            onActiveChange(null); // 会话已不存在，走新建
-          }
+        const list = await onRefreshConversations(workspace.id);
+        if (activeId != null && list.some((c) => c.id === activeId)) {
+          return; // 从其他页面返回：激活会话仍在本工作区，effect 会自动加载
         }
+        if (activeId != null) onActiveChange(null); // 会话已不属于本工作区
         const reuse = list.find((c) => !c.title || c.title === "新对话");
         if (reuse) {
           onActiveChange(reuse.id);
-          await loadMessages(reuse.id);
         } else {
           const conv = await post<Conversation>(
             `/api/workspaces/${workspace.id}/conversations`,
           );
-          setConversations([conv, ...list]);
+          await onRefreshConversations(workspace.id);
           onActiveChange(conv.id);
         }
       } catch (e) {
@@ -113,6 +97,25 @@ export default function ChatPage({
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.id]);
+
+  // 激活会话变化（含从边栏选择/新建/置空）→ 加载对应消息
+  const loadedIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (asking) return; // 请求进行中不重载，避免回答/trace 回填错乱
+    if (activeId == null) {
+      loadedIdRef.current = null;
+      setMessages([]);
+      return;
+    }
+    if (loadedIdRef.current === activeId) return;
+    loadedIdRef.current = activeId;
+    setError("");
+    setFollowups([]);
+    loadMessages(activeId).catch((e) =>
+      setError(e instanceof ApiError ? e.message : "加载会话失败"),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, asking]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -140,45 +143,6 @@ export default function ChatPage({
       .catch(() => setSuggestions([]));
   }, [workspace.id, messages.length]);
 
-  const openConversation = async (id: number) => {
-    if (asking) return; // 请求进行中禁止切换会话，避免进行中的回答/trace 回填到错误会话
-    onActiveChange(id);
-    setError("");
-    setFollowups([]);
-    try {
-      await loadMessages(id);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "加载会话失败");
-    }
-  };
-
-  const newConversation = async () => {
-    try {
-      const conv = await post<Conversation>(`/api/workspaces/${workspace.id}/conversations`);
-      await refreshConversations();
-      onActiveChange(conv.id);
-      setMessages([]);
-      setError("");
-      taRef.current?.focus();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "创建会话失败");
-    }
-  };
-
-  const removeConversation = async (id: number) => {
-    setDelConfirm(null);
-    try {
-      await del(`/api/conversations/${id}`);
-      await refreshConversations();
-      if (activeId === id) {
-        onActiveChange(null);
-        setMessages([]);
-      }
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "删除会话失败");
-    }
-  };
-
   const ask = async (questionRaw?: string) => {
     const question = (questionRaw ?? input).trim();
     if (!question || !activeId || asking) return;
@@ -195,7 +159,7 @@ export default function ChatPage({
     if (conv && (!conv.title || conv.title === "新对话")) {
       // 标题乐观更新 + 持久化到后端
       const newTitle = question.slice(0, 20);
-      setConversations(
+      onConversationsChange(
         conversations.map((c) => (c.id === activeId ? { ...c, title: newTitle } : c)),
       );
       void put<Conversation>(`/api/conversations/${activeId}`, { title: newTitle }).catch(
@@ -274,7 +238,7 @@ export default function ChatPage({
         copy[copy.length - 1] = { ...copy[copy.length - 1], citations };
         return copy;
       });
-      void refreshConversations();
+      void onRefreshConversations(workspace.id);
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") {
         // 用户主动停止：保留已生成的部分
@@ -332,46 +296,7 @@ export default function ChatPage({
   const starters = suggestions.length > 0 ? suggestions : STARTERS;
 
   return (
-    <div className="flex h-full min-h-0">
-      <aside className="flex w-52 shrink-0 flex-col border-r border-line bg-card max-md:hidden">
-        <div className="p-2.5">
-          <button className="btn-ghost w-full" onClick={() => void newConversation()}>
-            新建会话
-          </button>
-        </div>
-        <ul className="min-h-0 flex-1 overflow-y-auto pb-2">
-          {conversations.length === 0 && (
-            <li className="px-3 py-2 text-xs text-faint">暂无会话</li>
-          )}
-          {conversations.map((c) => (
-            <li key={c.id} className="group relative">
-              <button
-                className={`w-full truncate px-3 py-2 pr-8 text-left text-sm transition-colors ${
-                  activeId === c.id
-                    ? "bg-iblue-soft font-medium text-iblue"
-                    : "text-ink hover:bg-paper"
-                }`}
-                onClick={() => void openConversation(c.id)}
-                title={c.title || `会话 #${c.id}`}
-              >
-                {c.title || `会话 #${c.id}`}
-              </button>
-              <button
-                className="absolute right-2 top-2 hidden text-xs text-seal group-hover:block"
-                onClick={() => {
-                  const conv = conversations.find((x) => x.id === c.id);
-                  const label =
-                    conv?.title && conv.title !== "新对话" ? `「${conv.title}」` : "该会话";
-                  setDelConfirm({ id: c.id, label });
-                }}
-                title="删除会话"
-              >
-                删除
-              </button>
-            </li>
-          ))}
-        </ul>
-      </aside>
+    <div className="flex h-full min-h-0 flex-col">
 
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="border-b border-line px-5 py-2.5">
@@ -492,16 +417,6 @@ export default function ChatPage({
         </form>
       </div>
 
-      <ConfirmDialog
-        open={delConfirm !== null}
-        title="删除会话"
-        message={delConfirm ? `删除会话${delConfirm.label}？其中的问答记录将一并删除，不可恢复。` : ""}
-        confirmText="删除"
-        cancelText="取消"
-        danger
-        onConfirm={() => delConfirm && void removeConversation(delConfirm.id)}
-        onCancel={() => setDelConfirm(null)}
-      />
     </div>
   );
 }

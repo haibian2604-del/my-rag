@@ -55,6 +55,11 @@ export interface Workspace {
   description: string;
 }
 
+export interface Conversation {
+  id: number;
+  title: string;
+}
+
 let wsPromise: Promise<Workspace> | null = null;
 
 /** 获取默认工作区；不存在则创建 "默认"（并发安全，撞名后回读）。 */

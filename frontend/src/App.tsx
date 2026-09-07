@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, ensureDefaultWorkspace, get, post, type Workspace } from "./api/client";
+import ConfirmDialog from "./components/ConfirmDialog";
+import { ApiError, del, ensureDefaultWorkspace, get, post, type Conversation, type Workspace } from "./api/client";
 import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -33,12 +34,22 @@ export default function App() {
   const [error, setError] = useState("");
   const [needsAuth, setNeedsAuth] = useState(false);
   const [username, setUsername] = useState("");
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [delConv, setDelConv] = useState<Conversation | null>(null);
+
+  const fetchConversations = useCallback(async (wsId: number) => {
+    const list = await get<Conversation[]>(`/api/workspaces/${wsId}/conversations`);
+    setConversations(list);
+    return list;
+  }, []);
 
   const init = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      setWorkspace(await ensureDefaultWorkspace());
+      const ws = await ensureDefaultWorkspace();
+      setWorkspace(ws);
+      void fetchConversations(ws.id).catch(() => undefined);
       // 展示登录用户名；失败不阻塞主界面
       get<{ username: string }>("/api/auth/me")
         .then((u) => setUsername(u.username))
@@ -52,7 +63,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchConversations]);
 
   useEffect(() => {
     void init();
@@ -72,15 +83,44 @@ export default function App() {
     }
     setWorkspace(null);
     setActiveConvId(null);
+    setConversations([]);
     setPage("chat");
     setUsername("");
     setNeedsAuth(true);
   }, []);
 
-  // 切换到不同工作区时清空激活会话：会话属于工作区，跨工作区保留会把旧会话带过去
+  // 切换到不同工作区时清空激活会话并加载该工作区的会话列表
   const switchWorkspace = (ws: Workspace) => {
-    if (workspace && ws.id !== workspace.id) setActiveConvId(null);
+    if (workspace && ws.id !== workspace.id) {
+      setActiveConvId(null);
+      setConversations([]);
+      void fetchConversations(ws.id).catch(() => undefined);
+    }
     setWorkspace(ws);
+  };
+
+  const newConversation = async () => {
+    if (!workspace) return;
+    try {
+      const conv = await post<Conversation>(`/api/workspaces/${workspace.id}/conversations`);
+      await fetchConversations(workspace.id);
+      setActiveConvId(conv.id);
+      setPage("chat");
+    } catch {
+      // 创建失败静默：用户可重试
+    }
+  };
+
+  const removeConversation = async (conv: Conversation) => {
+    setDelConv(null);
+    try {
+      await del(`/api/conversations/${conv.id}`);
+      if (!workspace) return;
+      await fetchConversations(workspace.id);
+      if (activeConvId === conv.id) setActiveConvId(null);
+    } catch {
+      // 删除失败静默
+    }
   };
 
   if (needsAuth) {
@@ -120,6 +160,49 @@ export default function App() {
         <nav className="flex flex-col gap-0.5 px-2">{navButtons()}</nav>
         {workspace && (
           <WorkspaceSwitcher workspace={workspace} onSwitch={switchWorkspace} />
+        )}
+        {workspace && (
+          <div className="flex min-h-0 flex-1 flex-col px-2 pb-1">
+            <div className="flex items-center justify-between px-2 pb-1 pt-2">
+              <span className="text-xs text-faint">会话</span>
+              <button
+                className="text-xs text-faint transition-colors hover:text-ink"
+                onClick={() => void newConversation()}
+              >
+                ＋新建
+              </button>
+            </div>
+            <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
+              {conversations.length === 0 && (
+                <li className="px-2 py-1 text-xs text-faint">暂无会话</li>
+              )}
+              {conversations.map((c) => (
+                <li key={c.id} className="group relative">
+                  <button
+                    className={`w-full truncate rounded-md px-2 py-1.5 pr-7 text-left text-sm transition-colors ${
+                      page === "chat" && activeConvId === c.id
+                        ? "bg-iblue-soft font-medium text-iblue"
+                        : "text-ink hover:bg-paper"
+                    }`}
+                    onClick={() => {
+                      setActiveConvId(c.id);
+                      setPage("chat");
+                    }}
+                    title={c.title || `会话 #${c.id}`}
+                  >
+                    {c.title || `会话 #${c.id}`}
+                  </button>
+                  <button
+                    className="absolute right-1.5 top-1.5 hidden text-xs text-seal group-hover:block"
+                    onClick={() => setDelConv(c)}
+                    title="删除会话"
+                  >
+                    删除
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         <div className="mt-auto flex items-center gap-2.5 border-t border-line px-4 py-3">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-seal font-display text-sm uppercase text-white">
@@ -177,6 +260,9 @@ export default function App() {
                   workspace={workspace}
                   activeId={activeConvId}
                   onActiveChange={setActiveConvId}
+                  conversations={conversations}
+                  onConversationsChange={setConversations}
+                  onRefreshConversations={fetchConversations}
                 />
               )}
               {page === "documents" && <DocumentsPage workspace={workspace} />}
@@ -185,6 +271,20 @@ export default function App() {
           )}
         </main>
       </div>
+
+      <ConfirmDialog
+        open={delConv !== null}
+        title="删除会话"
+        message={
+          delConv
+            ? `删除会话${delConv.title && delConv.title !== "新对话" ? `「${delConv.title}」` : ""}？其中的问答记录将一并删除，不可恢复。`
+            : ""
+        }
+        confirmText="删除"
+        danger
+        onConfirm={() => delConv && void removeConversation(delConv)}
+        onCancel={() => setDelConv(null)}
+      />
     </div>
   );
 }
