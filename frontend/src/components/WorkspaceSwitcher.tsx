@@ -12,6 +12,8 @@ export default function WorkspaceSwitcher({
   const [open, setOpen] = useState(false);
   const [list, setList] = useState<Workspace[]>([]);
   const [error, setError] = useState("");
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameText, setRenameText] = useState("");
   const boxRef = useRef<HTMLDivElement>(null);
 
   const refresh = async () => {
@@ -51,14 +53,16 @@ export default function WorkspaceSwitcher({
     }
   };
 
-  const rename = async (ws: Workspace) => {
-    const name = window.prompt("重命名工作区", ws.name);
-    if (name === null) return;
+  const rename = async (ws: Workspace, name: string) => {
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!trimmed || trimmed === ws.name) {
+      setRenamingId(null);
+      return;
+    }
     try {
       await put(`/api/workspaces/${ws.id}`, { name: trimmed, description: ws.description });
       const updated = { ...ws, name: trimmed };
+      setRenamingId(null);
       await refresh();
       if (ws.id === workspace.id) onSwitch(updated); // 触发 App 刷新当前工作区名
     } catch (e) {
@@ -110,16 +114,34 @@ export default function WorkspaceSwitcher({
                 >
                   {ws.name}
                 </button>
-                <button
-                  className="shrink-0 rounded px-1 text-xs text-faint opacity-0 hover:text-ink group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void rename(ws);
-                  }}
-                  title="重命名"
-                >
-                  改
-                </button>
+                {renamingId === ws.id ? (
+                  <input
+                    autoFocus
+                    className="input w-28 px-1.5 py-0.5 text-xs"
+                    value={renameText}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => setRenameText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void rename(ws, renameText);
+                      if (e.key === "Escape") setRenamingId(null);
+                    }}
+                    onBlur={() => void rename(ws, renameText)}
+                  />
+                ) : (
+                  <button
+                    className="shrink-0 rounded px-1 text-faint opacity-0 hover:text-ink group-hover:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRenamingId(ws.id);
+                      setRenameText(ws.name);
+                    }}
+                    title="重命名"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                    </svg>
+                  </button>
+                )}
                 {list.length > 1 && (
                   <button
                     className="shrink-0 rounded px-1 text-xs text-faint opacity-0 hover:text-seal group-hover:opacity-100"
