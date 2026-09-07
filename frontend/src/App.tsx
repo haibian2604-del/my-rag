@@ -12,7 +12,6 @@ type Page = "chat" | "documents" | "settings";
 const NAV: { key: Page; label: string }[] = [
   { key: "chat", label: "对话" },
   { key: "documents", label: "文档库" },
-  { key: "settings", label: "设置" },
 ];
 
 function BrandMark({ className = "" }: { className?: string }) {
@@ -211,6 +210,29 @@ export default function App() {
           <span className="min-w-0 flex-1 truncate text-sm font-medium">
             {username || "已登录"}
           </span>
+          <button
+            title="设置"
+            aria-label="设置"
+            className={`shrink-0 rounded-md p-1.5 transition-colors hover:bg-paper hover:text-ink ${
+              page === "settings" ? "text-iblue" : "text-faint"
+            }`}
+            onClick={() => setPage("settings")}
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
           <button
             title="退出登录"
             aria-label="退出登录"
