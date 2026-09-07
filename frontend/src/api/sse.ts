@@ -10,7 +10,7 @@ export type SSEEvent =
   | { type: "citations"; items: Citation[] }
   | { type: "delta"; text: string }
   | { type: "stage"; stage: "retrieving" | "reranking" | "generating" }
-  | { type: "done" }
+  | { type: "done"; followups?: string[] }
   | { type: "error"; message: string };
 
 export async function* parseSSE(

@@ -30,6 +30,8 @@ class Document(Base):
     checksum: Mapped[str] = mapped_column(String(64), index=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 自动摘要（M5-T2）：摄取成功后由 LLM 生成，失败/无 LLM 保持 NULL
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

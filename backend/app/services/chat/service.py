@@ -115,7 +115,11 @@ async def ask_stream(conversation_id: int, question: str) -> AsyncIterator[str]:
                 citations=citations or None,
             ))
             s.commit()
-            yield _sse({"type": "done"})
+            # 追问建议：回答完成后同步调用一次非流式 LLM（内部 8s 超时，
+            # 失败降级为空列表，绝不影响 done 事件发出）
+            from app.services.chat.suggestions import generate_followups
+            followups = await generate_followups(question, "".join(parts), llm=llm)
+            yield _sse({"type": "done", "followups": followups})
         except LLMNotConfiguredError:
             yield _sse({"type": "error", "message": "未配置 LLM 模型"})
         except Exception as e:  # noqa: BLE001 — 流中异常以 error 事件告知前端

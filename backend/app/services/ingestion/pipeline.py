@@ -13,7 +13,7 @@ from app.core.db import SessionLocal
 from app.models.entities import Chunk, ChunkEmbedding, Document, ProviderConfig
 from app.providers.embedding.fake import FakeEmbedding
 from app.providers.embedding.openai_compat import OpenAICompatEmbedding
-from app.services.ingestion.chunking import split_parents_and_children
+from app.services.ingestion.chunking import split_faq_blocks, split_parents_and_children
 from app.services.ingestion.parsing import parse_file
 from app.services.ingestion.tokenize import tokenize_for_fts
 from app.services.providers_service import decrypt_api_key
@@ -67,7 +67,11 @@ async def ingest_document(document_id: int) -> None:
             doc.status = "parsing"
             s.commit()
             blocks = parse_file(doc_file_path(doc), doc.mime)
-            units = split_parents_and_children(blocks)
+            # FAQ 文档（M5-T4）：每个问答对 = 独立父块（全文=问+答），问题部分为子块
+            if any("faq_question" in b for b in blocks):
+                units = split_faq_blocks(blocks)
+            else:
+                units = split_parents_and_children(blocks)
             doc.status = "embedding"
             s.commit()
             emb_cfg = get_default_provider(s, "embedding")
@@ -130,3 +134,10 @@ async def ingest_document(document_id: int) -> None:
                 s.commit()
             logger.error("文档 %s 摄取失败: %s", document_id, e)
             raise
+        # 摘要生成（M5-T2）：放在状态置 ready 之后独立 try，任何失败只记日志，
+        # summary 保持 NULL，绝不影响 ready 状态
+        try:
+            from app.services.summary_service import generate_document_summary
+            await generate_document_summary(document_id)
+        except Exception:  # noqa: BLE001 — 摘要失败降级为不显示
+            logger.warning("文档 %s 摘要生成失败（不影响 ready）", document_id, exc_info=True)

@@ -7,6 +7,7 @@ from app.core.auth import require_auth
 from app.core.db import SessionLocal
 from app.models.entities import Document, Workspace
 from app.services.ingestion.pipeline import doc_file_path
+from app.services.chat.suggestions import get_suggestions
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -93,3 +94,15 @@ def delete_workspace(ws_id: int):
             path.unlink(missing_ok=True)
         except OSError:
             pass  # 磁盘回收失败不阻塞响应
+
+
+@router.get("/workspaces/{ws_id}/suggestions")
+async def get_suggestions_api(ws_id: int):
+    """工作区建议问题：无文档/未配置 LLM/生成失败一律返回空数组（绝不 500）。"""
+    with SessionLocal() as s:
+        get_or_404(s, Workspace, ws_id, "工作区不存在")
+    try:
+        questions = await get_suggestions(ws_id)
+    except Exception:  # noqa: BLE001 — 生成类能力失败降级为空
+        questions = []
+    return {"questions": questions}

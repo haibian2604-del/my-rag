@@ -38,6 +38,8 @@ export default function ChatPage({
   const [asking, setAsking] = useState(false);
   const [stage, setStage] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [followups, setFollowups] = useState<string[]>([]);
   const [docSummary, setDocSummary] = useState<{ ready: number; total: number } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -104,7 +106,7 @@ export default function ChatPage({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // 空状态引导：显示可问答的文档数
+  // 空状态引导：显示可问答的文档数 + 建议问题（生成失败静默不显示，回退默认引导问题）
   useEffect(() => {
     get<{ status: string }[]>(`/api/workspaces/${workspace.id}/documents`)
       .then((list) =>
@@ -114,11 +116,15 @@ export default function ChatPage({
         }),
       )
       .catch(() => undefined);
+    get<{ questions: string[] }>(`/api/workspaces/${workspace.id}/suggestions`)
+      .then((r) => setSuggestions(Array.isArray(r.questions) ? r.questions : []))
+      .catch(() => setSuggestions([]));
   }, [workspace.id, messages.length]);
 
   const openConversation = async (id: number) => {
     onActiveChange(id);
     setError("");
+    setFollowups([]);
     try {
       await loadMessages(id);
     } catch (e) {
@@ -165,6 +171,7 @@ export default function ChatPage({
     setError("");
     setAsking(true);
     setStage(null);
+    setFollowups([]); // 新一轮提问前清掉上一轮追问
     abortRef.current = new AbortController();
     const conv = conversations.find((c) => c.id === activeId);
     if (conv && (!conv.title || conv.title === "新对话")) {
@@ -219,6 +226,7 @@ export default function ChatPage({
         } else if (ev.type === "error") {
           errorMsg = ev.message;
         } else if (ev.type === "done") {
+          setFollowups(Array.isArray(ev.followups) ? ev.followups : []);
           break;
         }
       }
@@ -282,6 +290,8 @@ export default function ChatPage({
     return null;
   };
   const hint = emptyHint();
+  // 空态展示的问题：优先后端生成的建议问题，无则回退默认引导
+  const starters = suggestions.length > 0 ? suggestions : STARTERS;
 
   return (
     <div className="flex h-full min-h-0">
@@ -339,7 +349,7 @@ export default function ChatPage({
                       书箧中有 {docSummary?.ready} 篇文档可问答，试试这些问题：
                     </p>
                     <div className="mt-4 flex flex-col items-center gap-2">
-                      {STARTERS.map((s) => (
+                      {starters.map((s) => (
                         <button
                           key={s}
                           className="rounded-full border border-line bg-card px-4 py-1.5 text-sm text-ink transition-colors hover:border-iblue hover:text-iblue"
@@ -356,6 +366,22 @@ export default function ChatPage({
             {messages.map((m) => (
               <MessageBubble key={m.id} message={m} />
             ))}
+            {!asking && followups.length > 0 && (
+              <div className="flex flex-col items-start gap-1.5">
+                <p className="text-xs text-faint">可以继续追问：</p>
+                <div className="flex flex-wrap gap-2">
+                  {followups.map((q) => (
+                    <button
+                      key={q}
+                      className="rounded-full border border-line bg-card px-3 py-1 text-xs text-ink transition-colors hover:border-iblue hover:text-iblue"
+                      onClick={() => void ask(q)}
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {waitingFirstToken && (
               <p className="text-sm text-faint">
                 {(stage && STAGE_LABELS[stage]) || "正在检索资料并思考…"}
