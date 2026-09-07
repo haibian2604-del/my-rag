@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ApiError, get, put, type Workspace } from "../api/client";
 import EmbeddingSwitcher from "../components/EmbeddingSwitcher";
+import ConfirmDialog from "../components/ConfirmDialog";
 import ProviderForm, { type Provider } from "../components/ProviderForm";
 
 const KINDS = [
@@ -29,6 +30,7 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
   const [wsMsg, setWsMsg] = useState("");
   const [mcpEnabled, setMcpEnabled] = useState<boolean | null>(null);
   const [mcpMsg, setMcpMsg] = useState("");
+  const [mcpConfirm, setMcpConfirm] = useState(false);
   const mcpUrl = `${window.location.origin}/mcp`;
 
   const refreshProviders = async () => {
@@ -85,12 +87,8 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
   const currentProvider = providers.find((p) => p.kind === tab) ?? null;
   const activeKind = KINDS.find((k) => k.key === tab)!;
 
-  const toggleMcp = async () => {
-    // 状态未知（如后端未重启）时按「当前关闭」处理，第一次点击即尝试开启
-    const next = !(mcpEnabled ?? false);
-    if (next && !window.confirm(
-      "开启后任何能访问本服务端口的 MCP 客户端都将可以直接连接并读取知识库（无需密钥）。请确保仅在可信的内网环境使用。确定开启？"
-    )) return;
+  const toggleMcp = async (next: boolean) => {
+    setMcpConfirm(false);
     setMcpMsg("");
     try {
       const r = await put<{ enabled: boolean }>("/api/mcp/settings", { enabled: next });
@@ -283,7 +281,7 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
             role="switch"
             aria-checked={mcpEnabled ?? false}
             className={`relative h-6 w-11 rounded-full transition-colors ${mcpEnabled ? "bg-seal" : "bg-line"}`}
-            onClick={() => void toggleMcp()}
+            onClick={() => (mcpEnabled ? void toggleMcp(false) : setMcpConfirm(true))}
           >
             <span
               className={`absolute top-0.5 h-5 w-5 rounded-full bg-card shadow transition-all ${mcpEnabled ? "left-[22px]" : "left-0.5"}`}
@@ -310,6 +308,15 @@ export default function SettingsPage({ workspace }: { workspace: Workspace }) {
       </div>
       </div>
 
+
+      <ConfirmDialog
+        open={mcpConfirm}
+        title="开启 MCP 服务"
+        message="开启后任何能访问本服务端口的 MCP 客户端都将可以直接连接并读取知识库（无需密钥）。请确保仅在可信的内网环境使用。"
+        confirmText="开启"
+        onConfirm={() => void toggleMcp(true)}
+        onCancel={() => setMcpConfirm(false)}
+      />
     </div>
   );
 }

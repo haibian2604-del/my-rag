@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, del, get, post, put, type Workspace } from "../api/client";
 import { parseSSE, type Citation, type SSEEvent } from "../api/sse";
 import MessageBubble, { type ChatMessage, type ToolStep } from "../components/MessageBubble";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 interface Conversation {
   id: number;
@@ -38,6 +39,7 @@ export default function ChatPage({
   const [asking, setAsking] = useState(false);
   const [stage, setStage] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [delConfirm, setDelConfirm] = useState<{ id: number; label: string } | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [followups, setFollowups] = useState<string[]>([]);
   const [docSummary, setDocSummary] = useState<{ ready: number; total: number } | null>(null);
@@ -164,9 +166,7 @@ export default function ChatPage({
   };
 
   const removeConversation = async (id: number) => {
-    const conv = conversations.find((c) => c.id === id);
-    const label = conv?.title && conv.title !== "新对话" ? `「${conv.title}」` : "该会话";
-    if (!window.confirm(`删除会话${label}？其中的问答记录将一并删除，不可恢复。`)) return;
+    setDelConfirm(null);
     try {
       await del(`/api/conversations/${id}`);
       await refreshConversations();
@@ -358,7 +358,12 @@ export default function ChatPage({
               </button>
               <button
                 className="absolute right-2 top-2 hidden text-xs text-seal group-hover:block"
-                onClick={() => void removeConversation(c.id)}
+                onClick={() => {
+                  const conv = conversations.find((x) => x.id === c.id);
+                  const label =
+                    conv?.title && conv.title !== "新对话" ? `「${conv.title}」` : "该会话";
+                  setDelConfirm({ id: c.id, label });
+                }}
                 title="删除会话"
               >
                 删除
@@ -486,6 +491,17 @@ export default function ChatPage({
           </div>
         </form>
       </div>
+
+      <ConfirmDialog
+        open={delConfirm !== null}
+        title="删除会话"
+        message={delConfirm ? `删除会话${delConfirm.label}？其中的问答记录将一并删除，不可恢复。` : ""}
+        confirmText="删除"
+        cancelText="取消"
+        danger
+        onConfirm={() => delConfirm && void removeConversation(delConfirm.id)}
+        onCancel={() => setDelConfirm(null)}
+      />
     </div>
   );
 }

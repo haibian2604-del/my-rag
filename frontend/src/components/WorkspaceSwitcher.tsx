@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { del, get, post, put, type Workspace } from "../api/client";
+import ConfirmDialog from "./ConfirmDialog";
 
 /** 侧栏底部工作区切换器：点击展开浮层，支持切换/新建/重命名/删除。 */
 export default function WorkspaceSwitcher({
@@ -14,6 +15,7 @@ export default function WorkspaceSwitcher({
   const [error, setError] = useState("");
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameText, setRenameText] = useState("");
+  const [delTarget, setDelTarget] = useState<Workspace | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
   const refresh = async () => {
@@ -71,7 +73,7 @@ export default function WorkspaceSwitcher({
   };
 
   const remove = async (ws: Workspace) => {
-    if (!window.confirm(`删除工作区「${ws.name}」将同时删除其全部文档与对话，确定？`)) return;
+    setDelTarget(null);
     try {
       await del(`/api/workspaces/${ws.id}`);
       const fresh = await get<Workspace[]>("/api/workspaces");
@@ -147,7 +149,7 @@ export default function WorkspaceSwitcher({
                     className="shrink-0 rounded px-1 text-xs text-faint opacity-0 hover:text-seal group-hover:opacity-100"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void remove(ws);
+                      setDelTarget(ws);
                     }}
                     title="删除"
                   >
@@ -165,6 +167,16 @@ export default function WorkspaceSwitcher({
           </button>
         </div>
       )}
+
+      <ConfirmDialog
+        open={delTarget !== null}
+        title="删除工作区"
+        message={delTarget ? `删除工作区「${delTarget.name}」将同时删除其全部文档与对话，确定？` : ""}
+        confirmText="删除"
+        danger
+        onConfirm={() => delTarget && void remove(delTarget)}
+        onCancel={() => setDelTarget(null)}
+      />
     </div>
   );
 }
