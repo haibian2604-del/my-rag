@@ -77,6 +77,12 @@ export default function App() {
     setNeedsAuth(true);
   }, []);
 
+  // 切换到不同工作区时清空激活会话：会话属于工作区，跨工作区保留会把旧会话带过去
+  const switchWorkspace = (ws: Workspace) => {
+    if (workspace && ws.id !== workspace.id) setActiveConvId(null);
+    setWorkspace(ws);
+  };
+
   if (needsAuth) {
     return (
       <LoginPage
@@ -113,7 +119,7 @@ export default function App() {
         </div>
         <nav className="flex flex-col gap-0.5 px-2">{navButtons()}</nav>
         {workspace && (
-          <WorkspaceSwitcher workspace={workspace} onSwitch={setWorkspace} />
+          <WorkspaceSwitcher workspace={workspace} onSwitch={switchWorkspace} />
         )}
         <div className="mt-auto flex items-center gap-2.5 border-t border-line px-4 py-3">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-seal font-display text-sm uppercase text-white">
