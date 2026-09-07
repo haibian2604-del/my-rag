@@ -43,7 +43,6 @@ export default function ChatPage({
   // Agent 模式为会话级开关：仅当后端探测到 LLM 支持工具调用时才展示
   const [agentMode, setAgentMode] = useState(false);
   const messagesAreaRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const bootstrappedWs = useRef<number | null>(null);
@@ -362,7 +361,6 @@ export default function ChatPage({
                 {(stage && STAGE_LABELS[stage]) || "正在检索资料并思考…"}
               </p>
             )}
-            <div ref={bottomRef} />
           </div>
         </div>
 
