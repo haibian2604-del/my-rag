@@ -25,6 +25,12 @@ export default function WorkspaceSwitcher({
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameText, setRenameText] = useState("");
   const [delTarget, setDelTarget] = useState<Workspace | null>(null);
+  // 展开会话记录的工作区；默认展开当前工作区
+  const [expandedId, setExpandedId] = useState<number | null>(workspace.id);
+
+  useEffect(() => {
+    setExpandedId(workspace.id); // 切换工作区时自动展开新的当前项
+  }, [workspace.id]);
 
   const refresh = async () => {
     try {
@@ -99,6 +105,7 @@ export default function WorkspaceSwitcher({
       <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
         {list.map((ws) => {
           const active = ws.id === workspace.id;
+          const expanded = ws.id === expandedId;
           return (
             <li key={ws.id}>
               <div
@@ -135,10 +142,39 @@ export default function WorkspaceSwitcher({
                 ) : (
                   <button
                     className="min-w-0 flex-1 truncate text-left text-sm"
-                    onClick={() => !active && onSwitch(ws)}
+                    onClick={() => {
+                      if (!active) {
+                        onSwitch(ws);
+                        setExpandedId(ws.id);
+                      } else {
+                        setExpandedId((v) => (v === ws.id ? null : ws.id)); // 点击当前工作区：展开/收起
+                      }
+                    }}
                     title={ws.name}
                   >
                     {ws.name}
+                  </button>
+                  <button
+                    className="shrink-0 rounded p-0.5 text-faint transition-colors hover:text-ink"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExpandedId((v) => (v === ws.id ? null : ws.id));
+                    }}
+                    title={expanded ? "收起" : "展开"}
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      {expanded ? <polyline points="18 15 12 9 6 15" /> : <polyline points="6 9 12 15 18 9" />}
+                    </svg>
                   </button>
                 )}
                 <button
@@ -164,7 +200,7 @@ export default function WorkspaceSwitcher({
                 )}
               </div>
 
-              {active && (
+              {active && expanded && (
                 <ul className="mb-1 mt-0.5 space-y-0.5 pl-4">
                   <li>
                     <button
