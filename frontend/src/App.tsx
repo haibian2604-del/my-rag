@@ -159,50 +159,18 @@ export default function App() {
         {/* 工作区切换器与导航保持固定间距 */}
         <div className="h-16" />
         {workspace && (
-          <WorkspaceSwitcher workspace={workspace} onSwitch={switchWorkspace} />
-        )}
-        {workspace && (
-          <div className="flex min-h-0 flex-1 flex-col px-2 pb-1">
-            <div className="flex items-center justify-between px-2 pb-1 pt-2">
-              <span className="text-xs text-faint">会话</span>
-              <button
-                className="text-xs text-faint transition-colors hover:text-ink"
-                onClick={() => void newConversation()}
-              >
-                ＋新建
-              </button>
-            </div>
-            <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
-              {conversations.length === 0 && (
-                <li className="px-2 py-1 text-xs text-faint">暂无会话</li>
-              )}
-              {conversations.map((c) => (
-                <li key={c.id} className="group relative">
-                  <button
-                    className={`w-full truncate rounded-md px-2 py-1.5 pr-7 text-left text-sm transition-colors ${
-                      page === "chat" && activeConvId === c.id
-                        ? "bg-iblue-soft font-medium text-iblue"
-                        : "text-ink hover:bg-paper"
-                    }`}
-                    onClick={() => {
-                      setActiveConvId(c.id);
-                      setPage("chat");
-                    }}
-                    title={c.title || `会话 #${c.id}`}
-                  >
-                    {c.title || `会话 #${c.id}`}
-                  </button>
-                  <button
-                    className="absolute right-1.5 top-1.5 hidden text-xs text-seal group-hover:block"
-                    onClick={() => setDelConv(c)}
-                    title="删除会话"
-                  >
-                    删除
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <WorkspaceSwitcher
+            workspace={workspace}
+            onSwitch={switchWorkspace}
+            conversations={conversations}
+            activeConvId={activeConvId}
+            onSelectConversation={(id) => {
+              setActiveConvId(id);
+              setPage("chat");
+            }}
+            onNewConversation={() => void newConversation()}
+            onDeleteConversation={(c) => setDelConv(c)}
+          />
         )}
         <div className="mt-auto flex items-center gap-2.5 border-t border-line px-4 py-3">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-seal font-display text-sm uppercase text-white">

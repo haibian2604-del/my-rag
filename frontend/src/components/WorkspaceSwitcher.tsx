@@ -1,22 +1,30 @@
-import { useEffect, useRef, useState } from "react";
-import { del, get, post, put, type Workspace } from "../api/client";
+import { useEffect, useState } from "react";
+import { del, get, post, put, type Conversation, type Workspace } from "../api/client";
 import ConfirmDialog from "./ConfirmDialog";
 
-/** 侧栏底部工作区切换器：点击展开浮层，支持切换/新建/重命名/删除。 */
+/** 侧栏工作区树：全部工作区平铺展示，点击切换，当前工作区下方展开会话记录。 */
 export default function WorkspaceSwitcher({
   workspace,
   onSwitch,
+  conversations,
+  activeConvId,
+  onSelectConversation,
+  onNewConversation,
+  onDeleteConversation,
 }: {
   workspace: Workspace;
   onSwitch: (ws: Workspace) => void;
+  conversations: Conversation[];
+  activeConvId: number | null;
+  onSelectConversation: (id: number) => void;
+  onNewConversation: () => void;
+  onDeleteConversation: (conv: Conversation) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [list, setList] = useState<Workspace[]>([]);
   const [error, setError] = useState("");
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameText, setRenameText] = useState("");
   const [delTarget, setDelTarget] = useState<Workspace | null>(null);
-  const boxRef = useRef<HTMLDivElement>(null);
 
   const refresh = async () => {
     try {
@@ -28,17 +36,8 @@ export default function WorkspaceSwitcher({
   };
 
   useEffect(() => {
-    if (open) void refresh();
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [open]);
+    void refresh();
+  }, []);
 
   const create = async () => {
     // 默认名「工作区 N」；重名则继续追加序号
@@ -85,43 +84,47 @@ export default function WorkspaceSwitcher({
   };
 
   return (
-    <div ref={boxRef} className="relative mt-auto border-t border-line px-3 py-2.5">
-      <button
-        className="flex w-full items-center gap-1.5 truncate text-left text-xs text-faint hover:text-ink"
-        onClick={() => setOpen((v) => !v)}
-        title={workspace.name}
-      >
-        <span className="truncate">{workspace.name}</span>
-        <span className="ml-auto shrink-0 text-[10px]">{open ? "▾" : "▴"}</span>
-      </button>
-
-      {open && (
-        <div className="panel absolute bottom-full left-0 z-20 mb-2 w-56 rounded-lg p-1.5 text-sm shadow-lg">
-          {error && <p className="px-2 py-1 text-xs text-seal">{error}</p>}
-          <ul className="max-h-56 overflow-y-auto">
-            {list.map((ws) => (
-              <li
-                key={ws.id}
-                className={`group flex items-center gap-1 rounded-md px-2 py-1.5 ${
-                  ws.id === workspace.id ? "bg-iblue-soft text-iblue" : "hover:bg-iblue-soft/60"
+    <div className="flex min-h-0 flex-1 flex-col px-2 pb-1">
+      <div className="flex items-center justify-between px-2 pb-1">
+        <span className="text-xs text-faint">工作区</span>
+        <button
+          className="text-xs text-faint transition-colors hover:text-ink"
+          onClick={() => void create()}
+          title="新建工作区"
+        >
+          ＋新建
+        </button>
+      </div>
+      {error && <p className="px-2 py-1 text-xs text-seal">{error}</p>}
+      <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
+        {list.map((ws) => {
+          const active = ws.id === workspace.id;
+          return (
+            <li key={ws.id}>
+              <div
+                className={`group flex items-center gap-1.5 rounded-md px-2 py-1.5 ${
+                  active ? "bg-iblue-soft text-iblue" : "hover:bg-paper"
                 }`}
               >
-                <button
-                  className="min-w-0 flex-1 truncate text-left"
-                  onClick={() => {
-                    onSwitch(ws);
-                    setOpen(false);
-                  }}
-                  title={ws.name}
-                >
-                  {ws.name}
-                </button>
+                <span className="shrink-0" aria-hidden="true">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+                  </svg>
+                </span>
                 {renamingId === ws.id ? (
                   <input
                     autoFocus
                     className="input w-28 px-1.5 py-0.5 text-xs"
                     value={renameText}
-                    onClick={(e) => e.stopPropagation()}
                     onChange={(e) => setRenameText(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") void rename(ws, renameText);
@@ -131,42 +134,77 @@ export default function WorkspaceSwitcher({
                   />
                 ) : (
                   <button
-                    className="shrink-0 rounded px-1 text-faint opacity-0 hover:text-ink group-hover:opacity-100"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setRenamingId(ws.id);
-                      setRenameText(ws.name);
-                    }}
-                    title="重命名"
+                    className="min-w-0 flex-1 truncate text-left text-sm"
+                    onClick={() => !active && onSwitch(ws)}
+                    title={ws.name}
                   >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                    </svg>
+                    {ws.name}
                   </button>
                 )}
+                <button
+                  className="shrink-0 rounded p-0.5 text-faint opacity-0 transition-opacity hover:text-ink group-hover:opacity-100"
+                  onClick={() => {
+                    setRenamingId(ws.id);
+                    setRenameText(ws.name);
+                  }}
+                  title="重命名"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                  </svg>
+                </button>
                 {list.length > 1 && (
                   <button
-                    className="shrink-0 rounded px-1 text-xs text-faint opacity-0 hover:text-seal group-hover:opacity-100"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDelTarget(ws);
-                    }}
+                    className="shrink-0 rounded px-0.5 text-xs text-faint opacity-0 transition-opacity hover:text-seal group-hover:opacity-100"
+                    onClick={() => setDelTarget(ws)}
                     title="删除"
                   >
                     删
                   </button>
                 )}
-              </li>
-            ))}
-          </ul>
-          <button
-            className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-faint hover:bg-iblue-soft/60 hover:text-ink"
-            onClick={() => void create()}
-          >
-            ＋ 新建工作区
-          </button>
-        </div>
-      )}
+              </div>
+
+              {active && (
+                <ul className="mb-1 mt-0.5 space-y-0.5 pl-4">
+                  <li>
+                    <button
+                      className="w-full truncate rounded-md px-2 py-1 text-left text-xs text-faint transition-colors hover:bg-paper hover:text-ink"
+                      onClick={onNewConversation}
+                    >
+                      ＋ 新建对话
+                    </button>
+                  </li>
+                  {conversations.length === 0 && (
+                    <li className="px-2 py-1 text-xs text-faint">暂无会话</li>
+                  )}
+                  {conversations.map((c) => (
+                    <li key={c.id} className="group relative">
+                      <button
+                        className={`w-full truncate rounded-md px-2 py-1.5 pr-7 text-left text-sm transition-colors ${
+                          activeConvId === c.id
+                            ? "bg-iblue-soft font-medium text-iblue"
+                            : "text-ink hover:bg-paper"
+                        }`}
+                        onClick={() => onSelectConversation(c.id)}
+                        title={c.title || `会话 #${c.id}`}
+                      >
+                        {c.title || `会话 #${c.id}`}
+                      </button>
+                      <button
+                        className="absolute right-1.5 top-1.5 hidden text-xs text-seal group-hover:block"
+                        onClick={() => onDeleteConversation(c)}
+                        title="删除会话"
+                      >
+                        删除
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          );
+        })}
+      </ul>
 
       <ConfirmDialog
         open={delTarget !== null}
