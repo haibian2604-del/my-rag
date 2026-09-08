@@ -136,8 +136,10 @@ export default function App() {
     NAV.map((n) => (
       <button
         key={n.key}
-        className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-          page === n.key ? "bg-iblue-soft font-medium text-iblue" : "text-faint hover:text-ink"
+        className={`w-full rounded-md px-3 py-1.5 text-left text-sm transition-colors ${
+          page === n.key
+            ? "bg-iblue-soft font-medium text-iblue"
+            : "border border-line text-faint hover:border-faint/40 hover:text-ink"
         }`}
         onClick={() => setPage(n.key)}
       >
