@@ -1,0 +1,292 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "知笥（my_rag）系统架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "output": "my-rag-architecture.html",
+    "viewBox": [
+      1280,
+      640
+    ],
+    "views": [
+      {
+        "id": "chat-path",
+        "label": "问答主路径",
+        "focus": [
+          "browser",
+          "fastapi",
+          "agent",
+          "pg",
+          "omlx"
+        ],
+        "note": "从浏览器提问经 SSE 到检索与生成的完整链路。"
+      },
+      {
+        "id": "ingest-path",
+        "label": "摄取链路",
+        "focus": [
+          "browser",
+          "fastapi",
+          "ingest",
+          "pg"
+        ],
+        "note": "文档上传、解析、父子分块与向量写入（原文落盘 storage/）。"
+      },
+      {
+        "id": "mcp-path",
+        "label": "外部 Agent 接入",
+        "focus": [
+          "agent_client",
+          "mcp",
+          "pg"
+        ],
+        "note": "外部 Agent 经 MCP 只读访问知识库。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "browser",
+      "type": "external",
+      "label": "浏览器",
+      "sublabel": "React 19 + Vite SPA",
+      "pos": [
+        40,
+        280
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "agent_client",
+      "type": "external",
+      "label": "外部 Agent",
+      "sublabel": "Claude Code / Cursor 等",
+      "pos": [
+        40,
+        500
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "fastapi",
+      "type": "backend",
+      "label": "FastAPI 应用",
+      "sublabel": ":8001 · REST + SSE",
+      "pos": [
+        300,
+        280
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "tag": "JWT Cookie 认证"
+    },
+    {
+      "id": "mcp",
+      "type": "backend",
+      "label": "MCP 服务",
+      "sublabel": "fastmcp · /mcp",
+      "pos": [
+        300,
+        500
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "开关门禁 · 只读五工具"
+    },
+    {
+      "id": "ingest",
+      "type": "backend",
+      "label": "摄取流水线",
+      "sublabel": "解析 · 父子分块 · 落盘",
+      "pos": [
+        590,
+        80
+      ],
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "ReAct Agent",
+      "sublabel": "PydanticAI · kb_search/read_url",
+      "pos": [
+        600,
+        280
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "omlx",
+      "type": "cloud",
+      "label": "oMLX",
+      "sublabel": "OpenAI 兼容 · LLM/Embedding/Rerank",
+      "pos": [
+        940,
+        80
+      ],
+      "size": [
+        190,
+        64
+      ]
+    },
+    {
+      "id": "pg",
+      "type": "database",
+      "label": "PostgreSQL 16",
+      "sublabel": "pgvector · HNSW · FTS · 任务状态",
+      "pos": [
+        940,
+        280
+      ],
+      "size": [
+        190,
+        70
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "单机自托管 · Docker Compose",
+      "wraps": [
+        "fastapi",
+        "mcp",
+        "ingest",
+        "agent",
+        "pg"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "browser-to-api",
+      "from": "browser",
+      "to": "fastapi",
+      "label": "REST + SSE",
+      "variant": "emphasis"
+    },
+    {
+      "id": "client-to-mcp",
+      "from": "agent_client",
+      "to": "mcp",
+      "label": "MCP Streamable HTTP",
+      "variant": "emphasis"
+    },
+    {
+      "id": "api-to-ingest",
+      "from": "fastapi",
+      "to": "ingest",
+      "label": "上传/解析任务",
+      "fromSide": "top",
+      "toSide": "left"
+    },
+    {
+      "id": "api-to-agent",
+      "from": "fastapi",
+      "to": "agent",
+      "label": "提问 SSE"
+    },
+    {
+      "id": "ingest-to-omlx",
+      "from": "ingest",
+      "to": "omlx",
+      "label": "Embedding/Rerank",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "ingest-to-pg",
+      "from": "ingest",
+      "to": "pg",
+      "label": "块/向量/FTS 写入",
+      "fromSide": "top",
+      "toSide": "right",
+      "via": [
+        [
+          690,
+          40
+        ],
+        [
+          1210,
+          40
+        ],
+        [
+          1210,
+          315
+        ]
+      ]
+    },
+    {
+      "id": "agent-to-omlx",
+      "from": "agent",
+      "to": "omlx",
+      "label": "chat / tools",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "agent-to-pg",
+      "from": "agent",
+      "to": "pg",
+      "label": "kb_search 检索",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": 41
+    },
+    {
+      "id": "mcp-to-pg",
+      "from": "mcp",
+      "to": "pg",
+      "label": "只读检索 · ask 复用 LLM",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "前端",
+      "items": [
+        "React 19 + Vite + Tailwind 4 单页应用",
+        "会话状态提升至 App，SSE 流式渲染回答与引用"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "后端",
+      "items": [
+        "FastAPI 承载 REST 与 SSE，JWT Cookie 认证",
+        "摄取流水线：解析 → 父子分块（500/200 token）→ 摘要，原文落盘 storage/",
+        "PydanticAI ReAct Agent，最大轮数与用量限制防失控"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "AI 与数据",
+      "items": [
+        "oMLX 提供 LLM / Embedding / Rerank（OpenAI 兼容）",
+        "PostgreSQL 单库：pgvector HNSW + FTS + 任务状态",
+        "MCP 服务默认关闭，开关门禁后外部 Agent 只读接入"
+      ]
+    }
+  ]
+}
