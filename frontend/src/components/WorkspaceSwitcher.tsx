@@ -140,7 +140,8 @@ export default function WorkspaceSwitcher({
                     onBlur={() => void rename(ws, renameText)}
                   />
                 ) : (
-                  <button
+                  <>
+                    <button
                     className="min-w-0 flex-1 truncate text-left text-sm"
                     onClick={() => {
                       if (!active) {
@@ -176,6 +177,7 @@ export default function WorkspaceSwitcher({
                       {expanded ? <polyline points="18 15 12 9 6 15" /> : <polyline points="6 9 12 15 18 9" />}
                     </svg>
                   </button>
+                  </>
                 )}
                 <button
                   className="shrink-0 rounded p-0.5 text-faint opacity-0 transition-opacity hover:text-ink group-hover:opacity-100"
