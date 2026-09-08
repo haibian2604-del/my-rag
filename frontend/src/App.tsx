@@ -10,7 +10,6 @@ import WorkspaceSwitcher from "./components/WorkspaceSwitcher";
 type Page = "chat" | "documents" | "settings";
 
 const NAV: { key: Page; label: string }[] = [
-  { key: "chat", label: "对话" },
   { key: "documents", label: "文档库" },
 ];
 
@@ -157,6 +156,8 @@ export default function App() {
           </div>
         </div>
         <nav className="flex flex-col gap-0.5 px-2">{navButtons()}</nav>
+        {/* 工作区切换器下移：与导航按钮留出约 60% 侧栏高度的间距 */}
+        <div className="h-[60%]" />
         {workspace && (
           <WorkspaceSwitcher workspace={workspace} onSwitch={switchWorkspace} />
         )}
