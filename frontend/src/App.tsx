@@ -156,8 +156,8 @@ export default function App() {
           </div>
         </div>
         <nav className="flex flex-col gap-0.5 px-2">{navButtons()}</nav>
-        {/* 工作区切换器下移：与导航按钮留出约 60% 侧栏高度的间距 */}
-        <div className="h-[60%]" />
+        {/* 工作区切换器下移：上方留白约占 40% 侧栏高度 */}
+        <div className="h-[40%]" />
         {workspace && (
           <WorkspaceSwitcher workspace={workspace} onSwitch={switchWorkspace} />
         )}
