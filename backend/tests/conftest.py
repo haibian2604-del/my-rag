@@ -4,7 +4,7 @@ from sqlalchemy import delete, select
 
 from app.core.db import SessionLocal
 from app.main import create_app
-from app.models.entities import AppConfig, ProviderConfig, User
+from app.models.entities import ProviderConfig, User
 
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "admin-pw-123"
@@ -54,7 +54,6 @@ def _reset_auth_state():
     """
     with SessionLocal() as s:
         s.execute(delete(User))
-        s.execute(delete(AppConfig).where(AppConfig.key == "auth"))
         s.commit()
     yield
 

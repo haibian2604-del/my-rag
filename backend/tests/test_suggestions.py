@@ -136,7 +136,7 @@ def test_suggestions_cache_fingerprint_hit(client):
 async def test_openai_compat_complete_parses_message_content(httpx_mock):
     httpx_mock.add_response(json={"choices": [{"message": {"content": "你好，世界"}}]})
     llm = OpenAICompatLLM(base_url="http://x/v1", model="m", api_key="sk-t")
-    text = await llm.complete([{"role": "user", "content": "hi"}], timeout=5)
+    text = await llm.complete([{"role": "user", "content": "hi"}])
     assert text == "你好，世界"
     req = httpx_mock.get_requests()[0]
     assert b'"stream":false' in req.content.replace(b" ", b"")

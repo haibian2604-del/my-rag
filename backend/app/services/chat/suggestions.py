@@ -3,7 +3,7 @@ from sqlalchemy import func, select
 
 from app.core.db import SessionLocal
 from app.models.entities import AppConfig, Chunk, Document
-from app.services.chat.llm_util import LLM_UTIL_TIMEOUT, llm_complete, parse_json_list
+from app.services.chat.llm_util import llm_complete, parse_json_list
 from app.services.chat.service import get_llm_or_raise
 
 MAX_SUGGESTIONS = 3

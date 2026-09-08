@@ -180,8 +180,6 @@ def _parse_text(path: Path) -> list[dict]:
 
 
 def _split_paragraphs(content: str) -> list[str]:
-    import re
-
     paras = []
     for raw in re.split(r"\n\s*\n", content):
         text = raw.strip()

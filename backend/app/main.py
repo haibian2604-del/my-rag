@@ -3,7 +3,6 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastmcp.utilities.lifespan import combine_lifespans
@@ -28,52 +27,39 @@ logger = logging.getLogger(__name__)
 
 
 async def _probe_agent_capability() -> None:
-    """后台探测默认 LLM 是否支持 tools：发一次最小 tools 请求（2s 超时，HTTP 200 即可用）。
+    """后台探测默认 LLM 是否支持 tools：发一次最小 tools 请求（2s 超时，有响应即可用）。
 
     全程吞错：未配置 LLM 时安静跳过；任何失败写 false（探测失败=不可用）。
     绝不抛出、绝不阻塞启动。
     """
     try:
+        from app.services.chat.llm_util import llm_complete
+        from app.services.chat.service import build_llm_provider
         from app.services.ingestion.pipeline import default_provider_or_none
-        from app.services.providers_service import decrypt_api_key
 
         with SessionLocal() as s:
             cfg = default_provider_or_none(s, "llm")
             if cfg is None:
                 return  # 未配置 LLM：安静跳过，不写结果
-            headers = {}
-            api_key = decrypt_api_key(cfg)
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
-            url = cfg.base_url.rstrip("/") + "/chat/completions"
-            payload = {
-                "model": cfg.model,
-                "messages": [{"role": "user", "content": "ping"}],
-                "max_tokens": 1,
-                # 最小 tools 请求：探测端点是否支持 function calling 参数
-                "tools": [{
-                    "type": "function",
-                    "function": {
-                        "name": "noop",
-                        "description": "探测用空工具",
-                        "parameters": {"type": "object", "properties": {}},
-                    },
-                }],
-            }
-            async with httpx.AsyncClient(timeout=2.0) as client:
-                resp = await client.post(url, json=payload, headers=headers)
-            available = resp.status_code == 200
+            llm = build_llm_provider(cfg)
+        await llm_complete(llm, [{"role": "user", "content": "ping"}], timeout=2.0, tools=[{
+            "type": "function",
+            "function": {
+                "name": "noop",
+                "description": "探测用空工具",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }])
+        available = True
+    except Exception as e:  # noqa: BLE001 — 探测失败=不可用，且绝不影响启动
+        logger.warning("agent capability 探测失败: %s", e)
+        available = False
+    try:
         with SessionLocal() as s:
             s.merge(AppConfig(key=AGENT_CAPABILITY_KEY, value={"available": available}))
             s.commit()
-    except Exception as e:  # noqa: BLE001 — 探测失败=不可用，且绝不影响启动
-        logger.warning("agent capability 探测失败: %s", e)
-        try:
-            with SessionLocal() as s:
-                s.merge(AppConfig(key=AGENT_CAPABILITY_KEY, value={"available": False}))
-                s.commit()
-        except Exception as e2:  # noqa: BLE001 — 落库也失败时只记日志，绝不影响启动
-            logger.warning("agent capability 探测结果落库失败: %s", e2)
+    except Exception as e:  # noqa: BLE001 — 落库也失败时只记日志，绝不影响启动
+        logger.warning("agent capability 探测结果落库失败: %s", e)
 
 
 @asynccontextmanager

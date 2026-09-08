@@ -10,10 +10,11 @@ import json
 LLM_UTIL_TIMEOUT = 8.0
 
 
-async def llm_complete(llm, messages: list[dict], timeout: float = LLM_UTIL_TIMEOUT) -> str | None:
+async def llm_complete(llm, messages: list[dict], timeout: float = LLM_UTIL_TIMEOUT,
+                       **params) -> str | None:
     """非流式调用 LLM 生成一段文本；超时或任何异常返回 None（不抛出）。"""
     try:
-        return await asyncio.wait_for(llm.complete(messages), timeout=timeout)
+        return await asyncio.wait_for(llm.complete(messages, **params), timeout=timeout)
     except Exception:  # noqa: BLE001 — 生成失败降级，不影响主流程
         return None
 
