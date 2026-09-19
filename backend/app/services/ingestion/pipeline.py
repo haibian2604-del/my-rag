@@ -13,7 +13,7 @@ from app.core.db import SessionLocal
 from app.models.entities import Chunk, ChunkEmbedding, Document, ProviderConfig
 from app.providers.embedding.fake import FakeEmbedding
 from app.providers.embedding.openai_compat import OpenAICompatEmbedding
-from app.services.ingestion.chunking import split_faq_blocks, split_parents_and_children
+from app.services.ingestion.chunking import auto_chunk_params, split_faq_blocks, split_parents_and_children
 from app.services.ingestion.parsing import parse_file
 from app.services.ingestion.tokenize import tokenize_for_fts
 from app.services.providers_service import decrypt_api_key
@@ -71,7 +71,12 @@ async def ingest_document(document_id: int) -> None:
             if any("faq_question" in b for b in blocks):
                 units = split_faq_blocks(blocks)
             else:
-                units = split_parents_and_children(blocks)
+                # 切分参数按文档大小自适应（小文档小切片，大文档大切片）
+                parent_tokens, child_tokens, overlap = auto_chunk_params(
+                    sum(b.get("token_count", max(1, len(b["text"]) // 2)) for b in blocks))
+                units = split_parents_and_children(
+                    blocks, parent_tokens=parent_tokens,
+                    child_tokens=child_tokens, overlap_ratio=overlap)
             doc.status = "embedding"
             s.commit()
             emb_cfg = get_default_provider(s, "embedding")

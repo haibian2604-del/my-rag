@@ -16,6 +16,25 @@ def _tokens(text: str) -> int:
     return max(1, len(text) // 2)
 
 
+# 按文档大小自适应的切分参数（父块 token, 子块 token, 重叠比例）：
+# 短文档用小切片（粒度细、命中准、top_k 可更大），长文档用大切片
+# （减少碎片与索引膨胀），中等文档保持原默认。
+_CHUNK_PARAMS_SHORT = (300, 120, 0.15)
+_CHUNK_PARAMS_MEDIUM = (500, 200, 0.10)
+_CHUNK_PARAMS_LONG = (800, 320, 0.08)
+_SHORT_DOC_TOKENS = 2000
+_LONG_DOC_TOKENS = 20000
+
+
+def auto_chunk_params(total_tokens: int) -> tuple[int, int, float]:
+    """根据文档总 token 数动态选择切分参数（父子分块用）。"""
+    if total_tokens < _SHORT_DOC_TOKENS:
+        return _CHUNK_PARAMS_SHORT
+    if total_tokens <= _LONG_DOC_TOKENS:
+        return _CHUNK_PARAMS_MEDIUM
+    return _CHUNK_PARAMS_LONG
+
+
 def _windows(text: str, max_tokens: int) -> list[str]:
     win = max_tokens * 2  # token ≈ len(text) // 2
     return [text[i:i + win] for i in range(0, len(text), win)]

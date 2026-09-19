@@ -18,7 +18,7 @@ from app.services.ingestion.web_fetch import (
     _parse_page,
     validate_url,
 )
-from app.services.retrieval.search import retrieve
+from app.services.retrieval.search import dynamic_top_k, retrieve
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,8 @@ async def kb_search_impl(deps: Deps, query: str) -> str:
     """检索本工作区知识库，拼接命中并登记 citations（去重、按登记顺序编号）。"""
     try:
         hits = await asyncio.wait_for(
-            retrieve(deps.workspace_id, query, top_k=5), timeout=KB_SEARCH_TIMEOUT)
+            retrieve(deps.workspace_id, query, top_k=dynamic_top_k(5, deps.workspace_id)),
+            timeout=KB_SEARCH_TIMEOUT)
     except TimeoutError:
         logger.warning("kb_search 检索超时（%.0fs）", KB_SEARCH_TIMEOUT)
         return f"知识库检索超时（{KB_SEARCH_TIMEOUT:.0f} 秒），可稍后重试或换一种问法。"

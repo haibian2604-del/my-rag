@@ -252,6 +252,8 @@ def test_ask_reads_workspace_params(client, seed_data, monkeypatch):
         return []
 
     monkeypatch.setattr(chat_service, "retrieve", fake_retrieve)
+    # 本测试验证 ws.params 接线；动态 top_k 缩放单独在 test_dynamic_chunking 覆盖
+    monkeypatch.setattr(chat_service, "dynamic_top_k", lambda base_k, ws_id: base_k)
 
     with SessionLocal() as s:
         ws = s.get(Workspace, seed_data["ws_id"])

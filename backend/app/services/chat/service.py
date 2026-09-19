@@ -14,7 +14,7 @@ from app.services.chat.llm_util import friendly_error, guarded_llm_stream
 from app.services.ingestion.pipeline import default_provider_or_none, get_default_provider
 from app.services.providers_service import decrypt_api_key
 from app.services.retrieval.context import build_context
-from app.services.retrieval.search import retrieve
+from app.services.retrieval.search import dynamic_top_k, retrieve
 
 SYSTEM_PROMPT = (
     "你是个人知识库助手。仅依据提供的资料回答；"
@@ -80,6 +80,8 @@ async def ask_stream(conversation_id: int, question: str) -> AsyncIterator[str]:
             ws = s.get(Workspace, conv.workspace_id)
             ws_params = dict(ws.params or {}) if ws else {}
             top_k = int(ws_params.get("top_k", 5))
+            # 按工作区切片大小动态缩放：小切片召回多、大切片召回少
+            top_k = dynamic_top_k(top_k, conv.workspace_id)
             score_threshold = float(ws_params.get("score_threshold", 0.0))
             _rerank = ws_params.get("use_rerank")
             use_rerank = None if _rerank is None else bool(_rerank)

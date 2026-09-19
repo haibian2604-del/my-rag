@@ -54,7 +54,10 @@ def test_ingest_end_to_end(ws_with_fake_embedding, tmp_path):
             select(func.count()).select_from(ChunkEmbedding)
             .where(ChunkEmbedding.chunk_id.in_([c.id for c in chunks]))
         ).scalar()
-        assert emb_count == len(chunks)
+        # 动态切分下长文档的父块（有子块）不直接嵌入：只叶子块建向量
+        chunk_ids = {c.id for c in chunks}
+        leaves = [c for c in chunks if c.parent_id is not None or c.id not in chunk_ids]
+        assert emb_count == len(leaves)
         # 清理
         s.delete(d)
         s.commit()

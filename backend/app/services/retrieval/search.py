@@ -23,6 +23,26 @@ logger = logging.getLogger(__name__)
 RRF_K = 60
 # rerank 独立超时：超时降级为未重排结果，检索永不因 rerank 失败而失败
 RERANK_TIMEOUT = 5.0
+# 动态 top_k 基准：子块平均 token 达到该值时 k 不缩放（中等文档默认子块大小）
+DEFAULT_CHILD_TOKENS = 200
+DYNAMIC_TOP_K_MIN, DYNAMIC_TOP_K_MAX = 3, 10
+
+
+def dynamic_top_k(base_k: int, workspace_id: int) -> int:
+    """按工作区叶子块平均大小缩放 top_k：切片小→召回多，切片大→召回少。
+
+    k = base_k × (200 / 平均子块 token)，结果 clamp 到 [3, 10]。
+    无任何叶子块（空库/仅 FAQ）时保持 base_k 不变。
+    """
+    with SessionLocal() as s:
+        avg = s.execute(text(
+            "SELECT AVG(c.token_count) FROM chunks c "
+            "WHERE c.workspace_id = :ws " + _LEAF_FILTER
+        ), {"ws": workspace_id}).scalar_one_or_none()
+    if not avg:
+        return base_k
+    scaled = round(base_k * DEFAULT_CHILD_TOKENS / float(avg))
+    return max(DYNAMIC_TOP_K_MIN, min(DYNAMIC_TOP_K_MAX, scaled or base_k))
 
 # 叶子原则（父子分块，兼容旧数据）：检索单元 = parent_id 非空的子块，
 # 或没有子块指向自己的块（旧文档未回填时父块自身即叶子，行为与从前一致）。
