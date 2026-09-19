@@ -66,6 +66,12 @@ Docker Compose 部署时应用经 `http://<host>:9000` 对外暴露，MCP 端点
 | 文档解析 | PyMuPDF · python-docx · markdown-it-py |
 | 模型接入 | httpx 直连 OpenAI 兼容协议（不依赖 openai SDK / LangChain） |
 
+## 系统架构
+
+![知笥系统架构](docs/archify/my-rag-architecture.visual-check.1440x900.light.png)
+
+上图为主视图快照；完整交互版（明暗主题、问答主路径 / 摄取链路 / 外部 Agent 接入三个导览、关系追踪）见 [docs/archify/my-rag-architecture.html](docs/archify/my-rag-architecture.html)，克隆后在浏览器直接打开即可。
+
 架构原则：单服务 + 单库，无 Redis / Celery / 独立向量库；`providers/` 是唯一出现外部 AI 调用的模块；所有后台任务有状态机与启动恢复。设计取舍详见 [docs/02-实现方案.md](docs/02-实现方案.md)（竞品分析见 [docs/01-竞品分析.md](docs/01-竞品分析.md)）。
 
 ## 本地开发
