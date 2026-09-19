@@ -6,6 +6,7 @@ Hit 结构：{"chunk_id","document_id","filename","content","heading_path","page
 score_threshold 只在纯向量模式下生效（语义为余弦相似度门槛）；hybrid 模式
 下的 RRF 分与相似度不同量纲，不应用该阈值。
 """
+import asyncio
 import logging
 
 from sqlalchemy import bindparam, text
@@ -20,6 +21,8 @@ from app.services.providers_service import decrypt_api_key
 logger = logging.getLogger(__name__)
 
 RRF_K = 60
+# rerank 独立超时：超时降级为未重排结果，检索永不因 rerank 失败而失败
+RERANK_TIMEOUT = 5.0
 
 # 叶子原则（父子分块，兼容旧数据）：检索单元 = parent_id 非空的子块，
 # 或没有子块指向自己的块（旧文档未回填时父块自身即叶子，行为与从前一致）。
@@ -278,7 +281,9 @@ async def retrieve(
             return _aggregate_parents(hits)
     try:
         provider = build_rerank_provider(cfg)
-        idxs = await provider.rerank(query, [h["content"] for h in hits], top_n)
+        idxs = await asyncio.wait_for(
+            provider.rerank(query, [h["content"] for h in hits], top_n),
+            timeout=RERANK_TIMEOUT)
         # rerank 在子块列表上只重排+截断 top_n，不扩大集合；聚合到父块在后
         reranked = [hits[i] for i in idxs]
     except Exception:  # rerank 失败降级，检索永不因 rerank 失败而失败

@@ -3,6 +3,7 @@
 纯逻辑放在模块级 _impl 函数，便于脱离 Agent 直接单测；
 build_agent 内用 @agent.tool 注册薄封装（RunContext 取 deps）。
 """
+import asyncio
 import logging
 from urllib.parse import urljoin
 
@@ -23,12 +24,18 @@ logger = logging.getLogger(__name__)
 
 # 工具输出统一截断长度（作为 Observation 回传模型）
 TOOL_OUTPUT_LIMIT = 2000
+# kb_search 单工具超时：超时作为该轮工具失败结果回传模型，不触发整体 AGENT_TIMEOUT
+KB_SEARCH_TIMEOUT = 15.0
 
 
 async def kb_search_impl(deps: Deps, query: str) -> str:
     """检索本工作区知识库，拼接命中并登记 citations（去重、按登记顺序编号）。"""
     try:
-        hits = await retrieve(deps.workspace_id, query, top_k=5)
+        hits = await asyncio.wait_for(
+            retrieve(deps.workspace_id, query, top_k=5), timeout=KB_SEARCH_TIMEOUT)
+    except TimeoutError:
+        logger.warning("kb_search 检索超时（%.0fs）", KB_SEARCH_TIMEOUT)
+        return f"知识库检索超时（{KB_SEARCH_TIMEOUT:.0f} 秒），可稍后重试或换一种问法。"
     except Exception as e:
         logger.warning("kb_search 检索失败", exc_info=True)
         return f"知识库检索失败：{e}"

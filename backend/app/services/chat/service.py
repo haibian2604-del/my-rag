@@ -1,4 +1,5 @@
 """会话问答服务：检索 → 组装 messages → 流式生成 → 落库。"""
+import asyncio
 import json
 from collections.abc import AsyncIterator
 
@@ -9,6 +10,7 @@ from app.core.db import SessionLocal
 from app.models.entities import Conversation, Message, ProviderConfig, Workspace
 from app.providers.llm.fake import FakeLLM
 from app.providers.llm.openai_compat import OpenAICompatLLM
+from app.services.chat.llm_util import friendly_error, guarded_llm_stream
 from app.services.ingestion.pipeline import default_provider_or_none, get_default_provider
 from app.services.providers_service import decrypt_api_key
 from app.services.retrieval.context import build_context
@@ -19,6 +21,8 @@ SYSTEM_PROMPT = (
     "引用资料时在句末标注 [n]；资料不足以回答时明确说明。"
 )
 HISTORY_LIMIT = 10
+# 检索整体超时：超时直接告知用户重试，绝不带着不完整的结果生成回答
+RETRIEVE_TIMEOUT = 10.0
 
 
 class LLMNotConfiguredError(RuntimeError):
@@ -82,9 +86,15 @@ async def ask_stream(conversation_id: int, question: str) -> AsyncIterator[str]:
             use_hybrid = bool(ws_params.get("use_hybrid", True))
             max_tokens = int(ws_params.get("context_max_tokens", 3000))
             yield _sse({"type": "stage", "stage": "retrieving"})
-            hits = await retrieve(conv.workspace_id, question, use_rerank=use_rerank,
-                                  top_k=top_k, score_threshold=score_threshold,
-                                  hybrid=use_hybrid)
+            try:
+                hits = await asyncio.wait_for(
+                    retrieve(conv.workspace_id, question, use_rerank=use_rerank,
+                             top_k=top_k, score_threshold=score_threshold,
+                             hybrid=use_hybrid),
+                    timeout=RETRIEVE_TIMEOUT)
+            except TimeoutError:
+                yield _sse({"type": "error", "message": "知识库检索超时，请稍后重试"})
+                return
             # 工作区未显式关闭重排（use_rerank is not False）且有命中、配置了
             # 默认 rerank provider 时才提示重排阶段（实际重排在 retrieve 内部，
             # 失败自动降级）
@@ -104,9 +114,12 @@ async def ask_stream(conversation_id: int, question: str) -> AsyncIterator[str]:
             yield _sse({"type": "citations", "items": citations})
 
             parts: list[str] = []
-            async for delta in llm.stream_chat(messages):
-                parts.append(delta)
-                yield _sse({"type": "delta", "text": delta})
+            async for item in guarded_llm_stream(llm, messages):
+                if item is None:
+                    yield ": keepalive\n\n"  # SSE 注释行：代理不掐连接，前端可感知存活
+                    continue
+                parts.append(item)
+                yield _sse({"type": "delta", "text": item})
 
             s.add(Message(
                 conversation_id=conversation_id,
@@ -122,5 +135,7 @@ async def ask_stream(conversation_id: int, question: str) -> AsyncIterator[str]:
             yield _sse({"type": "done", "followups": followups})
         except LLMNotConfiguredError:
             yield _sse({"type": "error", "message": "未配置 LLM 模型"})
-        except Exception as e:  # noqa: BLE001 — 流中异常以 error 事件告知前端
-            yield _sse({"type": "error", "message": str(e)})
+        except Exception as e:  # noqa: BLE001 — 流中异常以固定文案告知前端，细节进日志
+            import logging
+            logging.getLogger(__name__).warning("问答流异常: %s", e, exc_info=True)
+            yield _sse({"type": "error", "message": friendly_error(e)})

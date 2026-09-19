@@ -36,6 +36,7 @@ export default function ChatPage({
   const [asking, setAsking] = useState(false);
   const [stage, setStage] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [lastQuestion, setLastQuestion] = useState(""); // 出错后「重试」用
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [followups, setFollowups] = useState<string[]>([]);
   const [docSummary, setDocSummary] = useState<{ ready: number; total: number } | null>(null);
@@ -148,6 +149,7 @@ export default function ChatPage({
   const ask = async (questionRaw?: string) => {
     const question = (questionRaw ?? input).trim();
     if (!question || !activeId || asking) return;
+    setLastQuestion(question);
     if (!questionRaw) {
       setInput("");
       resizeTa();
@@ -364,7 +366,20 @@ export default function ChatPage({
           </div>
         </div>
 
-        {error && <p className="px-5 pb-1 text-sm text-seal">{error}</p>}
+        {error && (
+          <p className="flex items-center gap-2 px-5 pb-1 text-sm text-seal">
+            <span>{error}</span>
+            <button
+              className="rounded border border-line px-2 py-0.5 text-xs text-ink transition-colors hover:border-iblue hover:text-iblue"
+              onClick={() => {
+                setError("");
+                void ask(lastQuestion);
+              }}
+            >
+              重试
+            </button>
+          </p>
+        )}
 
         <form
           className="border-t border-line p-3"
